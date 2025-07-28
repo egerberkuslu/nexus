@@ -30,6 +30,8 @@ try:
     from api.stats_routes import stats_bp
     from core.mininet_manager import MininetManager
     from utils.logger import setup_logger
+    from api.diagnostic_routes import diagnostic_bp
+
 except ImportError as e:
     print(f"Import error: {e}")
     print("Please run 'python fix_imports.py' to diagnose import issues")
@@ -50,7 +52,10 @@ app.register_blueprint(network_bp, url_prefix='/api/network')
 app.register_blueprint(controller_bp, url_prefix='/api/controller')
 app.register_blueprint(topology_bp, url_prefix='/api/topology')
 app.register_blueprint(stats_bp, url_prefix='/api/stats')
+# Add this import
 
+# Register the blueprint
+app.register_blueprint(diagnostic_bp, url_prefix='/api/diagnostic')
 # Make mininet_mgr available to blueprints
 app.config['MININET_MANAGER'] = mininet_mgr
 

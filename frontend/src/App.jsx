@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  Wifi, 
-  Maximize2, 
-  Minimize2, 
+import {
+  Wifi,
+  Maximize2,
+  Minimize2,
   AlertCircle,
   Activity,
   RefreshCw,
@@ -17,7 +17,12 @@ import {
   Eye,
   Clock,
   FileText,
-  Wrench
+  Wrench,
+  Settings,
+  X,
+  Monitor,
+  Server,
+  Layers
 } from 'lucide-react';
 
 // Import components
@@ -32,6 +37,9 @@ import PerformanceChart from './components/PerformanceChart';
 import FlowStatistics from './components/FlowStatistics';
 import NetworkDiagnostic from './components/NetworkDiagnostic';
 import DiagnosticWidget from './components/DiagnosticWidget';
+
+// Import the new Network Configuration Manager
+import NetworkConfigurationManager from './components/NetworkConfigurationManager/index';
 
 // Import hooks and utilities
 import { useApiCall } from './hooks/useApiCall';
@@ -57,7 +65,12 @@ const MininetVisualizer = () => {
   const [dragPositions, setDragPositions] = useState({});
   const [autoControllerEnabled, setAutoControllerEnabled] = useState(true);
 
-  // Diagnostic state - NEW
+  // Configuration modal state - NEW
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [configSelectedNode, setConfigSelectedNode] = useState(null);
+  const [configActiveTab, setConfigActiveTab] = useState('overview');
+
+  // Diagnostic state
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const [showDiagnosticBadge, setShowDiagnosticBadge] = useState(false);
   const [diagnosticWidgetVisible, setDiagnosticWidgetVisible] = useState(true);
@@ -90,7 +103,7 @@ const MininetVisualizer = () => {
 
   // Custom hooks
   const { apiCall, addLog } = useApiCall(setConnectionStatus, setLogs);
-  
+
   const {
     fetchNetworkMetrics,
     fetchDetailedStats,
@@ -160,7 +173,7 @@ const MininetVisualizer = () => {
     setLoading
   });
 
-  // DIAGNOSTIC HOOK - NEW
+  // DIAGNOSTIC HOOK
   const {
     diagnosticData,
     diagnosticLoading,
@@ -177,6 +190,18 @@ const MininetVisualizer = () => {
     resetDiagnosticData,
     getDiagnosticSummary
   } = useDiagnostic({ apiCall, addLog });
+
+  // Configuration Button Component - NEW
+  const ConfigurationButton = useCallback(() => (
+    <button
+      onClick={() => setShowConfigModal(true)}
+      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all duration-200 shadow-md hover:shadow-lg"
+      title="Open Network Configuration"
+    >
+      <Settings size={18} />
+      <span>Configure Network</span>
+    </button>
+  ), []);
 
   // Enhanced network creation with auto-controller detection
   const createNetwork = useCallback(async (topologyData = null) => {
@@ -199,17 +224,17 @@ const MininetVisualizer = () => {
   const startNetwork = useCallback(async () => {
     setLoading(true);
     setControllerWarning(false);
-    
+
     try {
       // Check if topology has controller nodes
       const hasControllerNodes = topology.controllers && topology.controllers.length > 0;
-      
+
       if (hasControllerNodes && !controllerStatus.running && autoControllerEnabled) {
         addLog('🔄 Detected OpenFlow topology - starting controller automatically...', 'info', 'controller');
-        
+
         // Start controller first
         const controllerStarted = await startController(ryuApp);
-        
+
         if (controllerStarted) {
           addLog('✅ Controller started successfully', 'success', 'controller');
           // Wait a moment for controller to initialize
@@ -219,15 +244,15 @@ const MininetVisualizer = () => {
           setControllerWarning(true);
         }
       }
-      
+
       // Start the network
       const result = await baseStartNetwork();
-      
+
       if (result && hasControllerNodes) {
         // Additional wait for OpenFlow switches to connect
         addLog('🔗 Waiting for switches to connect to controller...', 'info', 'network');
         await new Promise(resolve => setTimeout(resolve, 2000));
-        
+
         // Verify controller connections
         setTimeout(async () => {
           await fetchControllerStats();
@@ -236,7 +261,7 @@ const MininetVisualizer = () => {
           setTimeout(quickDiagnosticCheck, 5000);
         }, 3000);
       }
-      
+
       return result;
     } catch (error) {
       addLog(`❌ Error starting network: ${error.message}`, 'error', 'network');
@@ -244,24 +269,24 @@ const MininetVisualizer = () => {
     } finally {
       setLoading(false);
     }
-  }, [baseStartNetwork, topology.controllers, controllerStatus.running, autoControllerEnabled, 
-      startController, ryuApp, addLog, fetchControllerStats, fetchTopology]);
+  }, [baseStartNetwork, topology.controllers, controllerStatus.running, autoControllerEnabled,
+    startController, ryuApp, addLog, fetchControllerStats, fetchTopology]);
 
   // Enhanced ping test with controller status checking
   const runPingTest = useCallback(async () => {
     setLoading(true);
-    
+
     try {
       // Check if we need a controller but don't have one
       const hasControllerNodes = topology.controllers && topology.controllers.length > 0;
-      
+
       if (hasControllerNodes && !controllerStatus.running) {
         addLog('⚠️ Warning: Running ping test without active controller on OpenFlow network', 'warning', 'network');
       }
-      
+
       const result = await baseRunPingTest();
       setPingResults(result);
-      
+
       // Analyze ping results
       if (result.success) {
         const lossPercent = parseInt(result.packet_loss);
@@ -280,62 +305,79 @@ const MininetVisualizer = () => {
           setTimeout(() => setDiagnosticOpen(true), 1000);
         }
       }
-      
+
       return result;
     } finally {
       setLoading(false);
     }
   }, [baseRunPingTest, topology.controllers, controllerStatus.running, addLog]);
 
-  // Quick diagnostic check function - NEW
+  // Quick diagnostic check function
   const quickDiagnosticCheck = useCallback(async () => {
     if (!networkStatus.running) return;
-    
+
     addLog('🔍 Running quick diagnostic check...', 'info', 'diagnostic');
     const health = await fetchNetworkHealth();
-    
+
     if (health && health.overall_status !== 'healthy') {
       setShowDiagnosticBadge(true);
       addLog(`⚠️ Network issues detected: ${health.overall_status}`, 'warning', 'diagnostic');
     }
   }, [networkStatus.running, fetchNetworkHealth, addLog]);
 
-  // Diagnostic button component - NEW
+  // Configuration modal handlers - NEW
+  const handleOpenConfigForNode = useCallback((node, tab = 'overview') => {
+    setConfigSelectedNode(node);
+    setConfigActiveTab(tab);
+    setShowConfigModal(true);
+  }, []);
+
+  const handleCloseConfigModal = useCallback(() => {
+    setShowConfigModal(false);
+    setConfigSelectedNode(null);
+    setConfigActiveTab('overview');
+    // Refresh data after configuration changes
+    setTimeout(() => {
+      fetchStatus();
+      fetchTopology();
+      fetchControllerStatus();
+    }, 1000);
+  }, [fetchStatus, fetchTopology, fetchControllerStatus]);
+
+  // Diagnostic button component
   const DiagnosticButton = useCallback(() => {
     const summary = getDiagnosticSummary();
-    
+
     return (
       <button
         onClick={() => setDiagnosticOpen(true)}
-        className={`relative flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
-          showDiagnosticBadge 
-            ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' 
+        className={`relative flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${showDiagnosticBadge
+            ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse'
             : summary.overallStatus === 'healthy'
-            ? 'bg-green-100 hover:bg-green-200 text-green-700'
-            : summary.overallStatus === 'warning'
-            ? 'bg-yellow-100 hover:bg-yellow-200 text-yellow-700'
-            : summary.overallStatus === 'critical'
-            ? 'bg-red-100 hover:bg-red-200 text-red-700'
-            : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-        }`}
+              ? 'bg-green-100 hover:bg-green-200 text-green-700'
+              : summary.overallStatus === 'warning'
+                ? 'bg-yellow-100 hover:bg-yellow-200 text-yellow-700'
+                : summary.overallStatus === 'critical'
+                  ? 'bg-red-100 hover:bg-red-200 text-red-700'
+                  : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+          }`}
         title="Open Network Diagnostics"
       >
         <Activity className="w-5 h-5" />
         <span>Diagnostics</span>
-        
+
         {/* Issue count badge */}
         {summary.issuesCount > 0 && (
           <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">
             {summary.issuesCount > 9 ? '9+' : summary.issuesCount}
           </span>
         )}
-        
+
         {/* Health indicator dot */}
-        <div className={`w-2 h-2 rounded-full ${
-          summary.overallStatus === 'healthy' ? 'bg-green-500' :
-          summary.overallStatus === 'warning' ? 'bg-yellow-500' :
-          summary.overallStatus === 'critical' ? 'bg-red-500' : 'bg-gray-400'
-        }`} />
+        <div className={`w-2 h-2 rounded-full ${summary.overallStatus === 'healthy' ? 'bg-green-500' :
+            summary.overallStatus === 'warning' ? 'bg-yellow-500' :
+              summary.overallStatus === 'critical' ? 'bg-red-500' : 'bg-gray-400'
+          }`} />
       </button>
     );
   }, [getDiagnosticSummary, showDiagnosticBadge]);
@@ -390,9 +432,9 @@ const MininetVisualizer = () => {
       clearInterval(detailedStatsInterval);
       clearInterval(controllerLogsInterval);
     };
-  }, [networkStatus.running, controllerStatus.running, refreshRate, fetchStatus, 
-      fetchControllerStatus, fetchNetworkMetrics, fetchTopology, fetchDetailedStats, 
-      fetchAvailableApps, fetchControllerConfig, fetchControllerLogs, fetchControllerStats]);
+  }, [networkStatus.running, controllerStatus.running, refreshRate, fetchStatus,
+    fetchControllerStatus, fetchNetworkMetrics, fetchTopology, fetchDetailedStats,
+    fetchAvailableApps, fetchControllerConfig, fetchControllerLogs, fetchControllerStats]);
 
   // Monitor for controller warning conditions
   useEffect(() => {
@@ -401,13 +443,13 @@ const MininetVisualizer = () => {
     setControllerWarning(shouldWarn);
   }, [topology.controllers, controllerStatus.running, networkStatus.running]);
 
-  // Monitor for diagnostic badge conditions - NEW
+  // Monitor for diagnostic badge conditions
   useEffect(() => {
     // Show diagnostic badge if there are connectivity issues
     const hasControllerIssues = topology.controllers?.length > 0 && !controllerStatus.running && networkStatus.running;
     const hasPingFailures = pingResults && parseInt(pingResults.packet_loss) > 50;
     const hasNetworkIssues = !networkStatus.running && networkStatus.network_exists;
-    
+
     setShowDiagnosticBadge(hasControllerIssues || hasPingFailures || hasNetworkIssues);
   }, [topology.controllers, controllerStatus.running, networkStatus, pingResults]);
 
@@ -415,7 +457,7 @@ const MininetVisualizer = () => {
   const handleCreateCustomTopology = useCallback(async (topologyConfig) => {
     // Validate topology first
     const validation = validateTopology(topologyConfig);
-    
+
     if (!validation.isValid) {
       addLog(`❌ Topology validation failed: ${validation.errors.join(', ')}`, 'error', 'topology');
       return false;
@@ -427,25 +469,25 @@ const MininetVisualizer = () => {
 
     // Create the topology
     const success = await createCustomTopology(topologyConfig);
-    
+
     if (success) {
       // Refresh topology data after creation
       await Promise.all([fetchStatus(), fetchTopology()]);
-      
+
       // Check if this topology needs a controller
       const hasControllerNodes = topologyConfig.nodes?.some(node => node.type === 'controller');
       if (hasControllerNodes) {
         addLog('ℹ️ OpenFlow topology created. Controller will auto-start when network starts.', 'info', 'topology');
       }
     }
-    
+
     return success;
   }, [createCustomTopology, validateTopology, addLog, fetchStatus, fetchTopology]);
 
   // Enhanced topology save handler
   const handleSaveTopology = useCallback((topologyConfig) => {
     const validation = validateTopology(topologyConfig);
-    
+
     if (!validation.isValid) {
       addLog(`❌ Cannot save invalid topology: ${validation.errors.join(', ')}`, 'error', 'topology');
       return null;
@@ -482,33 +524,44 @@ const MininetVisualizer = () => {
         onImportTopology={importTopologyConfig}
         DiagnosticButton={DiagnosticButton}
         diagnosticSummary={getDiagnosticSummary()}
+        // Add the configuration button to header
+        extraActions={<ConfigurationButton />}
       />
 
-      {/* Enhanced Controller Warning Banner with Diagnostic Link */}
+      {/* Enhanced Controller Warning Banner with Configuration Link */}
       {controllerWarning && (
-        <div className="bg-yellow-100 border-l-4 border-yellow-500 p-4 mx-4 mt-2 rounded">
+        <div className="bg-yellow-100 border-l-4 border-yellow-500 p-4 mx-4 mt-2 rounded-lg">
           <div className="flex items-center justify-between">
             <div className="flex items-center">
               <AlertCircle className="w-5 h-5 text-yellow-500 mr-3" />
               <div className="text-sm text-yellow-700">
                 <p className="font-medium">Controller Required</p>
-                <p>Your topology has OpenFlow switches but no active controller. 
-                   <button 
-                     onClick={() => startController(ryuApp)}
-                     className="ml-1 underline hover:no-underline font-medium"
-                   >
-                     Start Controller
-                   </button> for proper operation.
+                <p>Your topology has OpenFlow switches but no active controller.
+                  <button
+                    onClick={() => startController(ryuApp)}
+                    className="ml-1 underline hover:no-underline font-medium"
+                  >
+                    Start Controller
+                  </button> for proper operation.
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => setDiagnosticOpen(true)}
-              className="bg-yellow-200 hover:bg-yellow-300 text-yellow-800 px-3 py-1 rounded text-sm font-medium flex items-center gap-2"
-            >
-              <Activity className="w-4 h-4" />
-              Diagnose Issues
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowConfigModal(true)}
+                className="bg-yellow-200 hover:bg-yellow-300 text-yellow-800 px-3 py-1 rounded text-sm font-medium flex items-center gap-2 transition-colors"
+              >
+                <Settings className="w-4 h-4" />
+                Configure
+              </button>
+              <button
+                onClick={() => setDiagnosticOpen(true)}
+                className="bg-yellow-200 hover:bg-yellow-300 text-yellow-800 px-3 py-1 rounded text-sm font-medium flex items-center gap-2 transition-colors"
+              >
+                <Activity className="w-4 h-4" />
+                Diagnose Issues
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -523,9 +576,10 @@ const MininetVisualizer = () => {
           pingResults={pingResults}
           diagnosticSummary={getDiagnosticSummary()}
           onOpenDiagnostics={() => setDiagnosticOpen(true)}
+          onOpenConfig={() => setShowConfigModal(true)}
         />
 
-        {/* Control Panel with Diagnostic Widget */}
+        {/* Control Panel with Enhanced Configuration Options */}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6">
           <div className="lg:col-span-3">
             <ControlPanel
@@ -555,18 +609,89 @@ const MininetVisualizer = () => {
               onOpenDiagnostics={() => setDiagnosticOpen(true)}
               onRunDiagnostics={quickDiagnosticCheck}
               diagnosticSummary={getDiagnosticSummary()}
+              // Add config actions to control panel
+              extraActions={
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowConfigModal(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                  >
+                    <Settings size={16} />
+                    Configure Nodes
+                  </button>
+                  <button
+                    onClick={() => handleOpenConfigForNode(null, 'controller')}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    <Server size={16} />
+                    Controller Config
+                  </button>
+                </div>
+              }
             />
           </div>
-          
-          {/* Diagnostic Widget */}
+
+          {/* Enhanced Diagnostic Widget with Configuration Links */}
           <div className="lg:col-span-1">
             {diagnosticWidgetVisible && (
-              <DiagnosticWidget
-                diagnosticSummary={getDiagnosticSummary()}
-                onOpenDiagnostics={() => setDiagnosticOpen(true)}
-                onRunQuickCheck={quickDiagnosticCheck}
-                loading={diagnosticLoading.health}
-              />
+              <div className="space-y-4">
+                <DiagnosticWidget
+                  diagnosticSummary={getDiagnosticSummary()}
+                  onOpenDiagnostics={() => setDiagnosticOpen(true)}
+                  onRunQuickCheck={quickDiagnosticCheck}
+                  loading={diagnosticLoading.health}
+                />
+
+                {/* Quick Configuration Widget */}
+                <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+                  <h3 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                    <Settings className="w-4 h-4 text-indigo-600" />
+                    Quick Configuration
+                  </h3>
+                  <p className="text-sm text-gray-600 mb-3">
+                    Configure network components and settings
+                  </p>
+                  <div className="space-y-2">
+                    <button
+                      onClick={() => setShowConfigModal(true)}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition-colors"
+                    >
+                      <Settings size={16} />
+                      Open Configuration
+                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => handleOpenConfigForNode(null, 'host')}
+                        className="flex items-center justify-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs hover:bg-blue-100 transition-colors"
+                      >
+                        <Monitor size={12} />
+                        Hosts
+                      </button>
+                      <button
+                        onClick={() => handleOpenConfigForNode(null, 'switch')}
+                        className="flex items-center justify-center gap-1 px-2 py-1 bg-purple-50 text-purple-700 rounded text-xs hover:bg-purple-100 transition-colors"
+                      >
+                        <Server size={12} />
+                        Switches
+                      </button>
+                      <button
+                        onClick={() => handleOpenConfigForNode(null, 'router')}
+                        className="flex items-center justify-center gap-1 px-2 py-1 bg-green-50 text-green-700 rounded text-xs hover:bg-green-100 transition-colors"
+                      >
+                        <Router size={12} />
+                        Routers
+                      </button>
+                      <button
+                        onClick={() => handleOpenConfigForNode(null, 'controller')}
+                        className="flex items-center justify-center gap-1 px-2 py-1 bg-red-50 text-red-700 rounded text-xs hover:bg-red-100 transition-colors"
+                      >
+                        <Settings size={12} />
+                        Controller
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -595,6 +720,9 @@ const MininetVisualizer = () => {
             onGetVisualizationData={getVisualizationData}
             diagnosticData={diagnosticData}
             onOpenDiagnostics={() => setDiagnosticOpen(true)}
+            onOpenConfig={() => setShowConfigModal(true)}
+            onConfigureNode={(node) => handleOpenConfigForNode(node, node.type)}
+            onNodeDoubleClick={(node) => handleOpenConfigForNode(node, node.type)}
           />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -607,6 +735,11 @@ const MininetVisualizer = () => {
               topology={topology}
               networkStatus={networkStatus}
               loading={loading}
+              onOpenConfig={() => setShowConfigModal(true)}
+              onConfigureHost={(hostId) => {
+                const host = topology.nodes.find(n => n.id === hostId && n.type === 'host');
+                if (host) handleOpenConfigForNode(host, 'host');
+              }}
             />
 
             <StatisticsPanel
@@ -625,6 +758,8 @@ const MininetVisualizer = () => {
               networkStatus={networkStatus}
               diagnosticSummary={getDiagnosticSummary()}
               onOpenDiagnostics={() => setDiagnosticOpen(true)}
+              onOpenConfig={() => setShowConfigModal(true)}
+              onConfigureController={() => handleOpenConfigForNode(null, 'controller')}
             />
 
             <ActivityMonitor
@@ -633,6 +768,7 @@ const MininetVisualizer = () => {
               connectionStatus={connectionStatus}
               autoControllerEnabled={autoControllerEnabled}
               showDiagnosticLogs={true}
+              onOpenConfig={() => setShowConfigModal(true)}
             />
 
             {metricsHistory.length > 5 && (
@@ -641,6 +777,7 @@ const MininetVisualizer = () => {
                 controllerStatus={controllerStatus}
                 networkMode={topology.controllers?.length > 0 ? 'OpenFlow' : 'Learning Bridge'}
                 diagnosticData={diagnosticData.historicalPings || []}
+                onOpenConfig={() => setShowConfigModal(true)}
               />
             )}
           </div>
@@ -667,8 +804,55 @@ const MininetVisualizer = () => {
           autoControllerEnabled={autoControllerEnabled}
           diagnosticData={diagnosticData}
           onOpenDiagnostics={() => setDiagnosticOpen(true)}
+          onOpenConfig={() => setShowConfigModal(true)}
+          onConfigureController={() => handleOpenConfigForNode(null, 'controller')}
+          onConfigureSwitch={(switchId) => {
+            const switchNode = topology.nodes.find(n => n.id === switchId && n.type === 'switch');
+            if (switchNode) handleOpenConfigForNode(switchNode, 'switch');
+          }}
         />
       </main>
+
+      {/* Scrollable Configuration Modal */}
+      {showConfigModal && (
+        <div className="fixed inset-0 bg-black/30 bg-opacity-50 z-50 flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl my-8 flex flex-col max-h-[calc(100vh-4rem)]">
+            <NetworkConfigurationManager
+              networkStatus={networkStatus}
+              controllerStatus={controllerStatus}
+              topology={topology}
+              selectedNode={configSelectedNode}
+              activeTab={configActiveTab}
+              apiCall={apiCall}
+              addLog={addLog}
+              fetchStatus={fetchStatus}
+              fetchTopology={fetchTopology}
+              fetchControllerStatus={fetchControllerStatus}
+              executeCommand={executeCommand}
+              startController={startController}
+              stopController={stopController}
+              restartController={restartController}
+              switchControllerApp={switchControllerApp}
+              availableApps={availableApps}
+              controllerConfig={controllerConfig}
+              onNetworkChange={() => {
+                fetchStatus();
+                fetchTopology();
+                fetchControllerStatus();
+                fetchNetworkMetrics();
+                addLog('🔄 Network configuration updated - refreshing data...', 'info', 'config');
+              }}
+              onClose={handleCloseConfigModal}
+              onNodeSelect={(node) => setConfigSelectedNode(node)}
+              onTabChange={(tab) => setConfigActiveTab(tab)}
+              isModal={true}
+              compactMode={true}
+              hideHeader={true}
+              showQuickActions={true}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Network Diagnostic Modal */}
       <NetworkDiagnostic
@@ -693,47 +877,60 @@ const MininetVisualizer = () => {
         fixCommonIssues={fixCommonIssues}
         runComprehensiveTest={runComprehensiveTest}
         resetDiagnosticData={resetDiagnosticData}
+        onOpenConfig={() => setShowConfigModal(true)}
+        onConfigureNode={(node) => {
+          setDiagnosticOpen(false);
+          setTimeout(() => handleOpenConfigForNode(node, node.type), 300);
+        }}
       />
 
-      {/* Enhanced Status Footer with Diagnostic Info */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-sm border-t border-gray-200 px-4 py-2">
+      {/* Enhanced Status Footer with Configuration Links */}
+      <footer className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-sm border-t border-gray-200 px-4 py-2 z-40">
         <div className="flex items-center justify-between text-xs text-gray-600">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${
-                connectionStatus === 'connected' ? 'bg-green-500' : 
-                connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'
-              }`} />
+              <div className={`w-2 h-2 rounded-full status-indicator ${connectionStatus === 'connected' ? 'bg-green-500 active' :
+                  connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'
+                }`} />
               <span>API {connectionStatus}</span>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <Wifi className="w-3 h-3" />
               <span>Network {networkStatus.running ? 'Active' : 'Inactive'}</span>
             </div>
-            
+
             {topology.controllers?.length > 0 && (
               <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${
-                  controllerStatus.running ? 'bg-blue-500' : 'bg-gray-400'
-                }`} />
+                <div className={`w-2 h-2 rounded-full status-indicator ${controllerStatus.running ? 'bg-blue-500 active' : 'bg-gray-400'
+                  }`} />
                 <span>Controller {controllerStatus.running ? 'Running' : 'Stopped'}</span>
               </div>
             )}
-            
+
+            {/* Configuration Status */}
+            <div className="flex items-center gap-2">
+              <Settings className="w-3 h-3" />
+              <button
+                onClick={() => setShowConfigModal(true)}
+                className="hover:text-indigo-600 underline transition-colors"
+              >
+                Configuration
+              </button>
+            </div>
+
             {/* Diagnostic Status */}
             {(() => {
               const summary = getDiagnosticSummary();
               if (summary.hasData) {
                 return (
                   <div className="flex items-center gap-2 cursor-pointer" onClick={() => setDiagnosticOpen(true)}>
-                    <div className={`w-2 h-2 rounded-full ${
-                      summary.overallStatus === 'healthy' ? 'bg-green-500' :
-                      summary.overallStatus === 'warning' ? 'bg-yellow-500' : 'bg-red-500'
-                    }`} />
+                    <div className={`w-2 h-2 rounded-full ${summary.overallStatus === 'healthy' ? 'bg-green-500' :
+                        summary.overallStatus === 'warning' ? 'bg-yellow-500' : 'bg-red-500'
+                      }`} />
                     <span>Health: {summary.overallStatus}</span>
                     {summary.issuesCount > 0 && (
-                      <span className="bg-red-100 text-red-600 px-1 rounded text-xs">
+                      <span className="bg-red-100 text-red-600 px-1 rounded text-xs notification-badge">
                         {summary.issuesCount} issues
                       </span>
                     )}
@@ -742,7 +939,7 @@ const MininetVisualizer = () => {
               }
               return null;
             })()}
-            
+
             {autoControllerEnabled && (
               <div className="flex items-center gap-1 text-blue-600">
                 <span>🤖</span>
@@ -750,30 +947,50 @@ const MininetVisualizer = () => {
               </div>
             )}
           </div>
-          
+
           <div className="flex items-center gap-4">
-            <span>Refresh: {refreshRate/1000}s</span>
+            <span>Refresh: {refreshRate / 1000}s</span>
             <span>Nodes: {topology.nodes?.length || 0}</span>
             <span>Links: {topology.links?.length || 0}</span>
             {networkStatus.running && (
               <span>Uptime: {networkMetrics.uptime}</span>
             )}
-            
-            {/* Quick diagnostic button */}
+
+            {/* Quick access buttons */}
             <button
               onClick={() => setDiagnosticOpen(true)}
-              className="text-blue-600 hover:text-blue-800 underline flex items-center gap-1"
+              className="text-blue-600 hover:text-blue-800 underline flex items-center gap-1 transition-colors"
               title="Open Network Diagnostics"
             >
               <Activity className="w-3 h-3" />
               Diagnostics
             </button>
+
+            <button
+              onClick={() => setShowConfigModal(true)}
+              className="text-indigo-600 hover:text-indigo-800 underline flex items-center gap-1 transition-colors"
+              title="Open Network Configuration"
+            >
+              <Settings className="w-3 h-3" />
+              Configure
+            </button>
           </div>
         </div>
       </footer>
 
-      {/* Enhanced Styles */}
+      {/* Loading Overlay for Configuration Operations */}
+      {loading && showConfigModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-30 z-60 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 flex items-center gap-3 shadow-2xl">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
+            <span className="text-gray-700 font-medium">Applying Configuration...</span>
+          </div>
+        </div>
+      )}
+
+      {/* Enhanced Styles with Configuration-specific CSS */}
       <style jsx>{`
+        /* Base animations and transitions */
         .custom-scrollbar::-webkit-scrollbar {
           width: 8px;
         }
@@ -789,7 +1006,62 @@ const MininetVisualizer = () => {
           background: #94a3b8;
         }
         
-        /* Animation for controller warning */
+        /* Configuration Modal Styles */
+        .modal-backdrop {
+          backdrop-filter: blur(8px);
+          background: rgba(0, 0, 0, 0.6);
+        }
+        
+        .config-modal {
+          animation: modalSlideIn 0.3s ease-out;
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }
+        
+        @keyframes modalSlideIn {
+          from {
+            opacity: 0;
+            transform: scale(0.95) translateY(-10px);
+          }
+          to {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+          }
+        }
+        
+        /* Configuration Button Styles */
+        .config-button {
+          transition: all 0.2s ease-in-out;
+          position: relative;
+          overflow: hidden;
+        }
+        
+        .config-button::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: -100%;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+          transition: left 0.5s;
+        }
+        
+        .config-button:hover::before {
+          left: 100%;
+        }
+        
+        /* Quick Configuration Widget */
+        .config-widget {
+          transition: all 0.3s ease-in-out;
+          transform: translateY(0);
+        }
+        
+        .config-widget:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Controller warning animation */
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.5; }
@@ -799,12 +1071,12 @@ const MininetVisualizer = () => {
           animation: pulse 2s ease-in-out infinite;
         }
         
-        /* Smooth transitions for status changes */
+        /* Status transitions */
         .status-transition {
           transition: all 0.3s ease-in-out;
         }
         
-        /* Enhanced loading states */
+        /* Loading shimmer effect */
         .loading-shimmer {
           background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
           background-size: 200% 100%;
@@ -863,71 +1135,6 @@ const MininetVisualizer = () => {
           animation: pulse 2s ease-in-out infinite;
         }
         
-        /* Diagnostic widget animations */
-        .diagnostic-widget {
-          transition: all 0.3s ease-in-out;
-          transform: translateY(0);
-        }
-        
-        .diagnostic-widget:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-        
-        /* Health status indicators */
-        .health-healthy {
-          background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
-          border-color: #16a34a;
-        }
-        
-        .health-warning {
-          background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-          border-color: #d97706;
-        }
-        
-        .health-critical {
-          background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
-          border-color: #dc2626;
-        }
-        
-        /* Modal animations */
-        .diagnostic-modal {
-          animation: modalSlideIn 0.3s ease-out;
-        }
-        
-        @keyframes modalSlideIn {
-          from {
-            opacity: 0;
-            transform: scale(0.95) translateY(-10px);
-          }
-          to {
-            opacity: 1;
-            transform: scale(1) translateY(0);
-          }
-        }
-        
-        /* Button hover effects */
-        .diagnostic-button {
-          transition: all 0.2s ease-in-out;
-          position: relative;
-          overflow: hidden;
-        }
-        
-        .diagnostic-button::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: -100%;
-          width: 100%;
-          height: 100%;
-          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-          transition: left 0.5s;
-        }
-        
-        .diagnostic-button:hover::before {
-          left: 100%;
-        }
-        
         /* Status indicator animations */
         .status-indicator {
           position: relative;
@@ -957,39 +1164,6 @@ const MininetVisualizer = () => {
           }
         }
         
-        /* Diagnostic tab animations */
-        .diagnostic-tab {
-          transition: all 0.2s ease-in-out;
-          position: relative;
-        }
-        
-        .diagnostic-tab.active {
-          background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-          transform: translateX(4px);
-        }
-        
-        .diagnostic-tab:hover:not(.active) {
-          transform: translateX(2px);
-          background: rgba(0, 0, 0, 0.02);
-        }
-        
-        /* Progress indicators */
-        .diagnostic-progress {
-          background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%);
-          animation: progressSlide 2s ease-in-out infinite;
-        }
-        
-        @keyframes progressSlide {
-          0%, 100% { width: 0%; }
-          50% { width: 100%; }
-        }
-        
-        /* Widget glow effect */
-        .diagnostic-widget-glow {
-          box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
-          border: 1px solid rgba(59, 130, 246, 0.5);
-        }
-        
         /* Notification badges */
         .notification-badge {
           animation: badgeBounce 0.6s ease-in-out;
@@ -1007,7 +1181,23 @@ const MininetVisualizer = () => {
           }
         }
         
-        /* Success/Error animations */
+        /* Configuration-specific styles */
+        .quick-config {
+          background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
+          border: 1px solid #c7d2fe;
+        }
+        
+        .quick-config:hover {
+          background: linear-gradient(135deg, #ddd6fe 0%, #c4b5fd 100%);
+          border-color: #a78bfa;
+        }
+        
+        /* Configuration modal header gradient */
+        .config-header {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        /* Success/Error flashes */
         .success-flash {
           animation: successFlash 1s ease-in-out;
         }
@@ -1026,58 +1216,185 @@ const MininetVisualizer = () => {
           50% { background-color: rgba(239, 68, 68, 0.1); }
         }
         
-        /* Loading skeleton */
-        .diagnostic-skeleton {
+        /* Configuration form animations */
+        .config-form-section {
+          transition: all 0.3s ease-in-out;
+        }
+        
+        .config-form-section:hover {
+          background: rgba(0, 0, 0, 0.02);
+        }
+        
+        /* Loading skeleton for configuration */
+        .config-skeleton {
           background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
           background-size: 200% 100%;
           animation: shimmer 1.5s infinite;
         }
         
-        /* Responsive adjustments */
+        /* Tab animations */
+        .config-tab {
+          transition: all 0.2s ease-in-out;
+          position: relative;
+        }
+        
+        .config-tab.active {
+          background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+          transform: translateX(4px);
+        }
+        
+        .config-tab:hover:not(.active) {
+          transform: translateX(2px);
+          background: rgba(0, 0, 0, 0.02);
+        }
+        
+        /* Progress indicators */
+        .config-progress {
+          background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%);
+          animation: progressSlide 2s ease-in-out infinite;
+        }
+        
+        @keyframes progressSlide {
+          0%, 100% { width: 0%; }
+          50% { width: 100%; }
+        }
+        
+        /* Widget glow effects */
+        .config-widget-glow {
+          box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+          border: 1px solid rgba(59, 130, 246, 0.5);
+        }
+        
+        /* Button hover effects */
+        .config-button-primary {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          transition: all 0.3s ease;
+        }
+        
+        .config-button-primary:hover {
+          background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%);
+          transform: translateY(-1px);
+          box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+        
+        /* Responsive design */
         @media (max-width: 768px) {
-          .diagnostic-widget {
+          .config-modal {
+            margin: 0.5rem;
+            width: calc(100% - 1rem);
+            height: calc(100% - 1rem);
+          }
+          
+          .config-widget {
             margin-bottom: 1rem;
           }
-          
-          .diagnostic-modal {
-            margin: 1rem;
-            width: calc(100% - 2rem);
-            height: calc(100% - 2rem);
+        }
+        
+        @media (max-width: 640px) {
+          .config-modal {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 0;
           }
         }
         
-        /* Dark mode support (if needed) */
+        /* Dark mode support */
         @media (prefers-color-scheme: dark) {
-          .diagnostic-widget {
+          .config-modal {
             background: #1f2937;
-            border-color: #374151;
             color: #f9fafb;
           }
           
-          .diagnostic-modal {
-            background: #1f2937;
-            color: #f9fafb;
+          .config-widget {
+            background: #374151;
+            border-color: #4b5563;
+          }
+          
+          .modal-backdrop {
+            background: rgba(0, 0, 0, 0.8);
           }
         }
         
-        /* High contrast mode support */
+        /* High contrast mode */
         @media (prefers-contrast: high) {
-          .diagnostic-button {
+          .config-button {
             border: 2px solid currentColor;
           }
           
           .status-indicator {
             border: 2px solid #000;
           }
+          
+          .config-modal {
+            border: 3px solid #000;
+          }
         }
         
-        /* Reduced motion support */
+        /* Reduced motion preferences */
         @media (prefers-reduced-motion: reduce) {
           * {
             animation-duration: 0.01ms !important;
             animation-iteration-count: 1 !important;
             transition-duration: 0.01ms !important;
           }
+          
+          .config-modal {
+            animation: none;
+          }
+          
+          .config-widget {
+            transition: none;
+          }
+          
+          .config-button::before {
+            transition: none;
+          }
+        }
+        
+        /* Print styles */
+        @media print {
+          .config-modal {
+            position: static;
+            width: 100%;
+            height: auto;
+            box-shadow: none;
+            border: 1px solid #000;
+          }
+          
+          .modal-backdrop {
+            display: none;
+          }
+        }
+        
+        /* Focus styles for accessibility */
+        .config-button:focus {
+          outline: 2px solid #4f46e5;
+          outline-offset: 2px;
+        }
+        
+        .config-modal:focus {
+          outline: none;
+        }
+        
+        /* Custom scrollbar for modal content */
+        .config-modal .custom-scrollbar::-webkit-scrollbar {
+          width: 12px;
+        }
+        
+        .config-modal .custom-scrollbar::-webkit-scrollbar-track {
+          background: #f8fafc;
+          border-radius: 6px;
+        }
+        
+        .config-modal .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #cbd5e1;
+          border-radius: 6px;
+          border: 2px solid #f8fafc;
+        }
+        
+        .config-modal .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #94a3b8;
         }
       `}</style>
     </div>

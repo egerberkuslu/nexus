@@ -14,17 +14,26 @@ const Header = ({
     <header className="bg-gradient-to-r from-gray-50 to-gray-100 shadow-lg border-b border-gray-200 backdrop-blur-xl">
       <div className="max-w-[95%] mx-auto px-6 py-6">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-2xl shadow">
-              <Wifi className="w-8 h-8 text-white" />
-            </div>
+          <div className="flex items-center space-x-6">
+            <img
+              src="../rsz_logo2.png"
+              alt="CaduceusFlux Logo"
+              className="w-24 object-contain"
+              style={{
+                mixBlendMode: 'multiply',
+                aspectRatio: '4 / 3'
+              }}
+            />
             <div>
               <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-800 to-gray-900 bg-clip-text text-transparent">
-                Mininet Network Visualizer
+                CaduceusFlux
               </h1>
-              <p className="text-gray-600 text-sm">Software-Defined Network Management & Real-time Monitoring</p>
+              <p className="text-gray-600 text-sm">
+                Software-Defined Network Management & Real-time Monitoring
+              </p>
             </div>
           </div>
+
 
           <div className="flex items-center gap-4">
             <StatusBadge

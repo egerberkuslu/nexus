@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 
 /**
  * Custom hook for network diagnostic operations
- * Integrates with your existing API pattern and logging system
+ * Updated to match actual API response structure
  */
 export const useDiagnostic = ({ apiCall, addLog }) => {
     // Diagnostic states
@@ -41,8 +41,7 @@ export const useDiagnostic = ({ apiCall, addLog }) => {
         addLog(`❌ Diagnostic error (${operation}): ${errorMessage}`, 'error', 'diagnostic');
     }, [addLog]);
 
-    // helpers at the top of the hook
-    // inside useDiagnostic.js, up where you define extractJson:
+    // Helper to extract JSON from response
     const extractJson = async resp => {
         let obj;
         // If it's a real Fetch Response, parse it
@@ -60,18 +59,20 @@ export const useDiagnostic = ({ apiCall, addLog }) => {
         return obj;
     };
 
-
-
+    // Fetch network health
     const fetchNetworkHealth = useCallback(async () => {
         setLoadingState('health', true);
         setDiagnosticErrors(prev => ({ ...prev, health: null }));
         try {
-
             const resp = await apiCall('/diagnostic/network-health', 'GET');
             const data = await extractJson(resp);
 
             setDiagnosticData(prev => ({ ...prev, networkHealth: data }));
-            // …log…
+            
+            const statusIcon = data.status === 'healthy' ? '✅' : '⚠️';
+            const issueCount = data.issues?.length || 0;
+            addLog(`${statusIcon} Network health check: ${data.status}, ${issueCount} issues found`, 'info', 'diagnostic');
+            
             return data;
         } catch (err) {
             handleDiagnosticError('health', err);
@@ -81,7 +82,7 @@ export const useDiagnostic = ({ apiCall, addLog }) => {
         }
     }, [apiCall, addLog, setLoadingState, handleDiagnosticError]);
 
-    // diagnoseConnectivity
+    // Diagnose connectivity issues
     const diagnoseConnectivity = useCallback(async () => {
         setLoadingState('connectivity', true);
         setDiagnosticErrors(prev => ({ ...prev, connectivity: null }));
@@ -90,7 +91,17 @@ export const useDiagnostic = ({ apiCall, addLog }) => {
             const data = await extractJson(resp);
 
             setDiagnosticData(prev => ({ ...prev, connectivityIssues: data }));
-            // …log…
+            
+            const statusIcon = data.status === 'healthy' ? '✅' : '⚠️';
+            const issueCount = data.issues?.length || 0;
+            const recommendationCount = data.recommendations?.length || 0;
+            
+            addLog(
+                `${statusIcon} Connectivity analysis: ${data.status}, ${issueCount} issues, ${recommendationCount} recommendations`, 
+                issueCount > 0 ? 'warning' : 'info', 
+                'diagnostic'
+            );
+            
             return data;
         } catch (err) {
             handleDiagnosticError('connectivity', err);
@@ -100,23 +111,21 @@ export const useDiagnostic = ({ apiCall, addLog }) => {
         }
     }, [apiCall, addLog, setLoadingState, handleDiagnosticError]);
 
-    // inside useDiagnostic…
+    // Fetch ARP tables
     const fetchArpTables = useCallback(async () => {
         setLoadingState('arp', true);
         setDiagnosticErrors(prev => ({ ...prev, arp: null }));
 
         try {
-            // apiCall now returns the JS object, not a Response
             const data = await apiCall('/diagnostic/arp-tables', 'GET');
-
-            // stash it in state
             setDiagnosticData(prev => ({ ...prev, arpTables: data }));
 
-            // log
-            const total = Object.values(data)
-                .reduce((sum, tbl) => sum + (tbl.entries?.length || 0), 0);
+            const hostCount = Object.keys(data).length;
+            const totalEntries = Object.values(data)
+                .reduce((sum, hostData) => sum + (hostData.arp_entries || 0), 0);
+            
             addLog(
-                `📋 ARP tables retrieved: ${Object.keys(data).length} hosts, ${total} total entries`,
+                `📋 ARP tables retrieved: ${hostCount} hosts, ${totalEntries} total entries`,
                 'info',
                 'diagnostic'
             );
@@ -130,24 +139,21 @@ export const useDiagnostic = ({ apiCall, addLog }) => {
         }
     }, [apiCall, addLog, setLoadingState, handleDiagnosticError]);
 
-
-    // Fetch routing tables - FIXED URL
-    // inside useDiagnostic…
+    // Fetch routing tables
     const fetchRoutingTables = useCallback(async () => {
         setLoadingState('routing', true);
         setDiagnosticErrors(prev => ({ ...prev, routing: null }));
 
         try {
-            // apiCall returns parsed JSON directly
             const data = await apiCall('/diagnostic/routing-tables', 'GET');
-
-            // stash in state
             setDiagnosticData(prev => ({ ...prev, routingTables: data }));
 
-            // log summary
-            const withGw = Object.values(data).filter(t => t.default_route).length;
+            const hostCount = Object.keys(data).length;
+            const withDefaultRoute = Object.values(data)
+                .filter(t => t.has_default_route).length;
+            
             addLog(
-                `🗺️ Routing tables: ${Object.keys(data).length} hosts, ${withGw} with default gateway`,
+                `🗺️ Routing tables: ${hostCount} hosts, ${withDefaultRoute} with default gateway`,
                 'info',
                 'diagnostic'
             );
@@ -161,28 +167,23 @@ export const useDiagnostic = ({ apiCall, addLog }) => {
         }
     }, [apiCall, addLog, setLoadingState, handleDiagnosticError]);
 
-    // Fetch switch flow tables - FIXED URL
-    // inside useDiagnostic…
+    // Fetch switch flow tables
     const fetchSwitchFlows = useCallback(async () => {
         setLoadingState('flows', true);
         setDiagnosticErrors(prev => ({ ...prev, flows: null }));
 
         try {
-            // apiCall returns parsed JSON directly
             const data = await apiCall('/diagnostic/switch-flows', 'GET');
-
-            // stash it in state
             setDiagnosticData(prev => ({ ...prev, switchFlows: data }));
 
-            // compute totals
+            const switchCount = Object.keys(data).length;
             const totalFlows = Object.values(data)
                 .reduce((sum, sw) => sum + (sw.flow_count || 0), 0);
             const connectedCount = Object.values(data)
                 .filter(sw => sw.connected).length;
 
-            // log summary
             addLog(
-                `🔄 Switch flows: ${connectedCount}/${Object.keys(data).length} switches connected, ${totalFlows} total flows`,
+                `🔄 Switch flows: ${connectedCount}/${switchCount} switches connected, ${totalFlows} total flows`,
                 'info',
                 'diagnostic'
             );
@@ -196,8 +197,7 @@ export const useDiagnostic = ({ apiCall, addLog }) => {
         }
     }, [apiCall, addLog, setLoadingState, handleDiagnosticError]);
 
-
-    // Run detailed ping test - FIXED URL
+    // Run detailed ping test
     const runDetailedPing = useCallback(async (config = {}) => {
         const {
             source = 'h1',
@@ -217,25 +217,28 @@ export const useDiagnostic = ({ apiCall, addLog }) => {
                 timeout
             });
 
-            if (response.ok) {
-                const data = await response.json();
-                setDiagnosticData(prev => ({
-                    ...prev,
-                    detailedPing: data,
-                    historicalPings: [...prev.historicalPings.slice(-19), {
-                        ...data,
-                        timestamp: new Date().toISOString()
-                    }]
-                }));
+            const data = await extractJson(response);
+            
+            setDiagnosticData(prev => ({
+                ...prev,
+                detailedPing: data,
+                historicalPings: [...prev.historicalPings.slice(-19), {
+                    ...data,
+                    timestamp: new Date().toISOString()
+                }]
+            }));
 
-                const statusIcon = data.success ? '✅' : '❌';
-                const lossText = data.packet_loss === '0' ? 'perfect' : `${data.packet_loss}% loss`;
-                addLog(`${statusIcon} Ping ${source}→${target}: ${lossText}, ${data.average_time_ms}ms avg`, 'info', 'diagnostic');
+            const statusIcon = data.success ? '✅' : '❌';
+            const lossText = data.packet_loss === '0' ? 'perfect' : `${data.packet_loss}% loss`;
+            const avgTime = data.average_time_ms || 'N/A';
+            
+            addLog(
+                `${statusIcon} Ping ${source}→${target}: ${lossText}, ${avgTime}ms avg`, 
+                data.success ? 'info' : 'warning', 
+                'diagnostic'
+            );
 
-                return data;
-            } else {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
+            return data;
         } catch (error) {
             handleDiagnosticError('ping', error);
             return null;
@@ -244,21 +247,17 @@ export const useDiagnostic = ({ apiCall, addLog }) => {
         }
     }, [apiCall, addLog, setLoadingState, handleDiagnosticError]);
 
-    // Run trace route - FIXED URL
+    // Run trace route
     const runTraceRoute = useCallback(async (source, target) => {
         setLoadingState('traceRoute', true);
         setDiagnosticErrors(prev => ({ ...prev, traceRoute: null }));
 
         try {
             const response = await apiCall(`/diagnostic/trace-route/${source}/${target}`, 'GET');
-
-            if (response.ok) {
-                const data = await response.json();
-                addLog(`🛤️ Trace route ${source}→${target} completed`, 'info', 'diagnostic');
-                return data;
-            } else {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
+            const data = await extractJson(response);
+            
+            addLog(`🛤️ Trace route ${source}→${target} completed: ${data.hops?.length || 0} hops`, 'info', 'diagnostic');
+            return data;
         } catch (error) {
             handleDiagnosticError('traceRoute', error);
             return null;
@@ -267,44 +266,39 @@ export const useDiagnostic = ({ apiCall, addLog }) => {
         }
     }, [apiCall, addLog, setLoadingState, handleDiagnosticError]);
 
-    // Auto-fix common issues - FIXED URL
+    // Auto-fix common issues
     const fixCommonIssues = useCallback(async () => {
         setLoadingState('fixing', true);
         setDiagnosticErrors(prev => ({ ...prev, fixing: null }));
 
         try {
             const response = await apiCall('/diagnostic/fix-common-issues', 'POST');
+            const data = await extractJson(response);
 
-            if (response.ok) {
-                const data = await response.json();
+            if (data.success) {
+                const fixCount = data.fixes_applied?.length || 0;
+                addLog(`🔧 Auto-fix completed: ${fixCount} fixes applied`, 'success', 'diagnostic');
 
-                if (data.success) {
-                    addLog(`🔧 Auto-fix completed: ${data.fixes_applied?.length || 0} fixes applied`, 'success', 'diagnostic');
+                // Log each fix applied
+                data.fixes_applied?.forEach(fix => {
+                    addLog(`  ✅ ${fix}`, 'success', 'diagnostic');
+                });
 
-                    // Log each fix applied
-                    data.fixes_applied?.forEach(fix => {
-                        addLog(`  ✅ ${fix}`, 'success', 'diagnostic');
-                    });
+                // Log any errors
+                data.errors?.forEach(error => {
+                    addLog(`  ❌ ${error}`, 'error', 'diagnostic');
+                });
 
-                    // Log any errors
-                    data.errors?.forEach(error => {
-                        addLog(`  ❌ ${error}`, 'error', 'diagnostic');
-                    });
-
-                    // Refresh diagnostic data after fixes
-                    setTimeout(() => {
-                        fetchNetworkHealth();
-                        diagnoseConnectivity();
-                    }, 2000);
-
-                } else {
-                    addLog('🔧 Auto-fix failed to complete', 'error', 'diagnostic');
-                }
-
-                return data;
+                // Refresh diagnostic data after fixes
+                setTimeout(() => {
+                    fetchNetworkHealth();
+                    diagnoseConnectivity();
+                }, 2000);
             } else {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                addLog('🔧 Auto-fix failed to complete', 'error', 'diagnostic');
             }
+
+            return data;
         } catch (error) {
             handleDiagnosticError('fixing', error);
             return null;
@@ -329,12 +323,20 @@ export const useDiagnostic = ({ apiCall, addLog }) => {
         };
 
         try {
-            // Run all diagnostic tests
-            results.health = await fetchNetworkHealth();
-            results.connectivity = await diagnoseConnectivity();
-            results.arp = await fetchArpTables();
-            results.routing = await fetchRoutingTables();
-            results.flows = await fetchSwitchFlows();
+            // Run all diagnostic tests in parallel where possible
+            const [health, connectivity, arp, routing, flows] = await Promise.allSettled([
+                fetchNetworkHealth(),
+                diagnoseConnectivity(),
+                fetchArpTables(),
+                fetchRoutingTables(),
+                fetchSwitchFlows()
+            ]);
+
+            results.health = health.status === 'fulfilled' ? health.value : null;
+            results.connectivity = connectivity.status === 'fulfilled' ? connectivity.value : null;
+            results.arp = arp.status === 'fulfilled' ? arp.value : null;
+            results.routing = routing.status === 'fulfilled' ? routing.value : null;
+            results.flows = flows.status === 'fulfilled' ? flows.value : null;
 
             // Run ping tests between all host pairs
             if (hosts.length >= 2) {
@@ -357,14 +359,21 @@ export const useDiagnostic = ({ apiCall, addLog }) => {
 
             // Summary
             const testCount = Object.values(results).filter(r => r !== null).length;
-            const issues = results.health?.issues?.length || 0;
+            const healthIssues = results.health?.issues?.length || 0;
+            const connectivityIssues = results.connectivity?.issues?.length || 0;
+            const totalIssues = healthIssues + connectivityIssues;
             const successfulPings = results.pingTests.filter(p => p.success).length;
 
-            addLog(`🏁 Comprehensive test completed: ${testCount} tests, ${issues} issues, ${successfulPings}/${results.pingTests.length} pings successful`, 'info', 'diagnostic');
+            addLog(
+                `🏁 Comprehensive test completed: ${testCount} tests, ${totalIssues} total issues, ${successfulPings}/${results.pingTests.length} pings successful`, 
+                totalIssues > 0 ? 'warning' : 'success', 
+                'diagnostic'
+            );
 
             return results;
         } catch (error) {
             addLog(`❌ Comprehensive test failed: ${error.message}`, 'error', 'diagnostic');
+            results.endTime = new Date().toISOString();
             return results;
         }
     }, [fetchNetworkHealth, diagnoseConnectivity, fetchArpTables, fetchRoutingTables, fetchSwitchFlows, runDetailedPing, addLog]);
@@ -390,16 +399,24 @@ export const useDiagnostic = ({ apiCall, addLog }) => {
         const connectivity = diagnosticData.connectivityIssues;
         const lastPing = diagnosticData.detailedPing;
 
+        const healthIssues = health?.issues?.length || 0;
+        const connectivityIssues = connectivity?.issues?.length || 0;
+        const totalIssues = healthIssues + connectivityIssues;
+
+        const healthRecommendations = health?.recommendations?.length || 0;
+        const connectivityRecommendations = connectivity?.recommendations?.length || 0;
+        const totalRecommendations = healthRecommendations + connectivityRecommendations;
+
         return {
-            overallStatus: health?.overall_status || 'unknown',
-            issuesCount: (health?.issues?.length || 0) + (connectivity?.issues?.length || 0),
-            suggestionsCount: (health?.recommendations?.length || 0) + (connectivity?.suggestions?.length || 0),
+            overallStatus: totalIssues === 0 ? 'healthy' : 'issues_found',
+            issuesCount: totalIssues,
+            recommendationsCount: totalRecommendations,
             lastPingSuccess: lastPing?.success || false,
             lastPingLoss: lastPing?.packet_loss || 'N/A',
-            componentsHealthy: health?.components ?
-                Object.values(health.components).filter(status => status === 'healthy').length : 0,
-            totalComponents: health?.components ? Object.keys(health.components).length : 0,
-            hasData: !!(health || connectivity || lastPing)
+            connectivityStatus: connectivity?.status || 'unknown',
+            healthStatus: health?.status || 'unknown',
+            hasData: !!(health || connectivity || lastPing),
+            timestamp: connectivity?.timestamp || health?.timestamp
         };
     }, [diagnosticData]);
 

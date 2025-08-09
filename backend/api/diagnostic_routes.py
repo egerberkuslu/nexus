@@ -349,10 +349,13 @@ def get_network_health():
         for switch in mininet_mgr.net.switches:
             try:
                 import subprocess
-                result = subprocess.run(
-                    ['ovs-ofctl', 'show', switch.name],
-                    capture_output=True, text=True, timeout=2
-                )
+                cmd = [
+                    'sudo',                          # ensure root privilege
+                    'ovs-ofctl',
+                    '-O', 'OpenFlow13',              # match your switch’s protocol
+                    'show', switch.name
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
                 if result.returncode == 0:
                     switch_health.append('healthy')
                 else:

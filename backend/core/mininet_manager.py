@@ -1088,3 +1088,457 @@ class MininetManager:
         if self.net:
             logger.info("Starting CLI")
             CLI(self.net)
+    def diagnose_connectivity_issues(self):
+        """
+        Diagnose connectivity issues in the network
+        Returns detailed analysis of network connectivity problems
+        """
+        if not self.net or not self.is_running:
+            return {
+                'status': 'error',
+                'message': 'Network not running',
+                'issues': ['Network is not started'],
+                'recommendations': ['Start the network first']
+            }
+        
+        try:
+            issues = []
+            recommendations = []
+            detailed_results = {}
+            
+            # 1. Check controller connectivity
+            controller_issues = self._check_controller_connectivity()
+            if controller_issues['issues']:
+                issues.extend(controller_issues['issues'])
+                recommendations.extend(controller_issues['recommendations'])
+            detailed_results['controller'] = controller_issues
+            
+            # 2. Check switch connectivity to controller
+            switch_controller_issues = self._check_switch_controller_connectivity()
+            if switch_controller_issues['issues']:
+                issues.extend(switch_controller_issues['issues'])
+                recommendations.extend(switch_controller_issues['recommendations'])
+            detailed_results['switch_controller'] = switch_controller_issues
+            
+            # 3. Check host-to-host connectivity
+            host_connectivity_issues = self._check_host_connectivity()
+            if host_connectivity_issues['issues']:
+                issues.extend(host_connectivity_issues['issues'])
+                recommendations.extend(host_connectivity_issues['recommendations'])
+            detailed_results['host_connectivity'] = host_connectivity_issues
+            
+            # 4. Check interface status
+            interface_issues = self._check_interface_status()
+            if interface_issues['issues']:
+                issues.extend(interface_issues['issues'])
+                recommendations.extend(interface_issues['recommendations'])
+            detailed_results['interfaces'] = interface_issues
+            
+            # 5. Check flow table status
+            flow_issues = self._check_flow_tables()
+            if flow_issues['issues']:
+                issues.extend(flow_issues['issues'])
+                recommendations.extend(flow_issues['recommendations'])
+            detailed_results['flows'] = flow_issues
+            
+            # 6. Check ARP tables
+            arp_issues = self._check_arp_tables()
+            if arp_issues['issues']:
+                issues.extend(arp_issues['issues'])
+                recommendations.extend(arp_issues['recommendations'])
+            detailed_results['arp'] = arp_issues
+            
+            # 7. Check routing (for routers)
+            routing_issues = self._check_routing_tables()
+            if routing_issues['issues']:
+                issues.extend(routing_issues['issues'])
+                recommendations.extend(routing_issues['recommendations'])
+            detailed_results['routing'] = routing_issues
+            
+            # Overall status
+            status = 'healthy' if not issues else 'issues_found'
+            
+            return {
+                'status': status,
+                'message': f'Found {len(issues)} connectivity issues' if issues else 'No connectivity issues detected',
+                'issues': issues,
+                'recommendations': recommendations,
+                'detailed_results': detailed_results,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error during connectivity diagnosis: {e}")
+            return {
+                'status': 'error',
+                'message': f'Diagnosis failed: {str(e)}',
+                'issues': [f'Diagnostic error: {str(e)}'],
+                'recommendations': ['Check system logs for more details']
+            }
+
+    def _check_controller_connectivity(self):
+        """Check if controller is running and accessible"""
+        issues = []
+        recommendations = []
+        details = {}
+        
+        try:
+            # Check if Ryu controller is running
+            if not self.ryu_controller.is_running:
+                issues.append("Ryu controller is not running")
+                recommendations.append("Start the Ryu controller")
+                details['controller_running'] = False
+            else:
+                details['controller_running'] = True
+                
+            # Check controller process
+            controller_status = self.get_controller_status()
+            details['controller_status'] = controller_status
+            
+            if controller_status.get('running', False):
+                # Check if controller port is accessible
+                import socket
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(2)
+                    result = sock.connect_ex(('127.0.0.1', self.ryu_controller.controller_port))
+                    sock.close()
+                    
+                    if result != 0:
+                        issues.append(f"Controller port {self.ryu_controller.controller_port} is not accessible")
+                        recommendations.append("Check if controller is listening on the correct port")
+                        details['port_accessible'] = False
+                    else:
+                        details['port_accessible'] = True
+                        
+                except Exception as e:
+                    issues.append(f"Cannot check controller port accessibility: {e}")
+                    details['port_check_error'] = str(e)
+            
+        except Exception as e:
+            issues.append(f"Controller connectivity check failed: {e}")
+            
+        return {
+            'issues': issues,
+            'recommendations': recommendations,
+            'details': details
+        }
+
+    def _check_switch_controller_connectivity(self):
+        """Check if switches are connected to controller"""
+        issues = []
+        recommendations = []
+        details = {}
+        
+        try:
+            switches = [s for s in self.net.switches]
+            details['switches_checked'] = len(switches)
+            details['switch_details'] = {}
+            
+            for switch in switches:
+                switch_details = {}
+                
+                try:
+                    # Check if switch is connected to controller using ovs-vsctl
+                    result = subprocess.run(
+                        ['ovs-vsctl', 'get-controller', switch.name],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    
+                    if result.returncode == 0:
+                        controller_info = result.stdout.strip()
+                        switch_details['controller_configured'] = controller_info
+                        
+                        if 'tcp:' not in controller_info:
+                            issues.append(f"Switch {switch.name} has no controller configured")
+                            recommendations.append(f"Configure controller for switch {switch.name}")
+                    else:
+                        issues.append(f"Cannot get controller info for switch {switch.name}")
+                        switch_details['controller_configured'] = 'unknown'
+                    
+                    # Check OpenFlow connection status
+                    result = subprocess.run(
+                        ['ovs-vsctl', 'show'],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    
+                    if result.returncode == 0:
+                        ovs_output = result.stdout
+                        if switch.name in ovs_output:
+                            if 'is_connected: true' in ovs_output:
+                                switch_details['connected'] = True
+                            else:
+                                switch_details['connected'] = False
+                                issues.append(f"Switch {switch.name} is not connected to controller")
+                                recommendations.append(f"Check OpenFlow connection for {switch.name}")
+                    
+                except subprocess.TimeoutExpired:
+                    issues.append(f"Timeout checking switch {switch.name}")
+                    switch_details['timeout'] = True
+                except Exception as e:
+                    issues.append(f"Error checking switch {switch.name}: {e}")
+                    switch_details['error'] = str(e)
+                    
+                details['switch_details'][switch.name] = switch_details
+                
+        except Exception as e:
+            issues.append(f"Switch-controller connectivity check failed: {e}")
+            
+        return {
+            'issues': issues,
+            'recommendations': recommendations,
+            'details': details
+        }
+
+    def _check_host_connectivity(self):
+        """Check host-to-host connectivity"""
+        issues = []
+        recommendations = []
+        details = {}
+        
+        try:
+            hosts = [h for h in self.net.hosts if not isinstance(h, Router)]
+            details['hosts_checked'] = len(hosts)
+            details['ping_results'] = {}
+            
+            if len(hosts) < 2:
+                details['note'] = 'Less than 2 hosts available for connectivity testing'
+                return {
+                    'issues': issues,
+                    'recommendations': recommendations,
+                    'details': details
+                }
+            
+            # Test connectivity between all pairs of hosts
+            failed_pairs = []
+            total_tests = 0
+            
+            for i, host1 in enumerate(hosts):
+                for host2 in hosts[i+1:]:
+                    total_tests += 1
+                    try:
+                        # Ping from host1 to host2
+                        result = host1.cmd(f'ping -c 1 -W 2 {host2.IP()}')
+                        
+                        if '1 packets transmitted, 1 received' in result:
+                            details['ping_results'][f'{host1.name}->{host2.name}'] = 'success'
+                        else:
+                            details['ping_results'][f'{host1.name}->{host2.name}'] = 'failed'
+                            failed_pairs.append((host1.name, host2.name))
+                            
+                    except Exception as e:
+                        details['ping_results'][f'{host1.name}->{host2.name}'] = f'error: {e}'
+                        failed_pairs.append((host1.name, host2.name))
+            
+            details['total_tests'] = total_tests
+            details['failed_tests'] = len(failed_pairs)
+            
+            if failed_pairs:
+                issues.append(f"Connectivity failed between {len(failed_pairs)} host pairs")
+                recommendations.append("Check switch flow tables and ARP resolution")
+                for pair in failed_pairs:
+                    issues.append(f"No connectivity: {pair[0]} -> {pair[1]}")
+                    
+        except Exception as e:
+            issues.append(f"Host connectivity check failed: {e}")
+            
+        return {
+            'issues': issues,
+            'recommendations': recommendations,
+            'details': details
+        }
+
+    def _check_interface_status(self):
+        """Check interface status for all nodes"""
+        issues = []
+        recommendations = []
+        details = {}
+        
+        try:
+            all_nodes = self.net.hosts + self.net.switches
+            details['interfaces'] = {}
+            
+            for node in all_nodes:
+                node_interfaces = {}
+                
+                try:
+                    for intf in node.intfList():
+                        if intf.name == 'lo':
+                            continue
+                            
+                        intf_info = {
+                            'name': intf.name,
+                            'up': intf.isUp(),
+                            'ip': getattr(intf, 'ip', 'N/A'),
+                            'mac': getattr(intf, 'mac', 'N/A')
+                        }
+                        
+                        if not intf.isUp():
+                            issues.append(f"Interface {intf.name} on {node.name} is down")
+                            recommendations.append(f"Bring up interface {intf.name} on {node.name}")
+                            
+                        node_interfaces[intf.name] = intf_info
+                        
+                except Exception as e:
+                    node_interfaces['error'] = str(e)
+                    issues.append(f"Cannot check interfaces on {node.name}: {e}")
+                    
+                details['interfaces'][node.name] = node_interfaces
+                
+        except Exception as e:
+            issues.append(f"Interface status check failed: {e}")
+            
+        return {
+            'issues': issues,
+            'recommendations': recommendations,
+            'details': details
+        }
+
+    def _check_flow_tables(self):
+        """Check OpenFlow flow tables on switches"""
+        issues = []
+        recommendations = []
+        details = {}
+        
+        try:
+            switches = [s for s in self.net.switches]
+            details['flow_tables'] = {}
+            
+            for switch in switches:
+                switch_flows = {}
+                
+                try:
+                    # Get flow table using ovs-ofctl
+                    result = subprocess.run(
+                        ['ovs-ofctl', 'dump-flows', switch.name, '-O', 'OpenFlow13'],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    
+                    if result.returncode == 0:
+                        flow_lines = result.stdout.strip().split('\n')[1:]  # Skip header
+                        switch_flows['flow_count'] = len(flow_lines)
+                        switch_flows['flows'] = flow_lines[:5]  # First 5 flows
+                        
+                        if len(flow_lines) == 0:
+                            issues.append(f"No flows installed on switch {switch.name}")
+                            recommendations.append(f"Check controller application and host connectivity")
+                        elif len(flow_lines) < 2:
+                            issues.append(f"Very few flows on switch {switch.name} (only {len(flow_lines)})")
+                            recommendations.append(f"Generate some traffic to populate flow tables")
+                            
+                    else:
+                        switch_flows['error'] = 'Cannot dump flows'
+                        issues.append(f"Cannot dump flows from switch {switch.name}")
+                        
+                except subprocess.TimeoutExpired:
+                    switch_flows['error'] = 'timeout'
+                    issues.append(f"Timeout dumping flows from switch {switch.name}")
+                except Exception as e:
+                    switch_flows['error'] = str(e)
+                    issues.append(f"Error checking flows on switch {switch.name}: {e}")
+                    
+                details['flow_tables'][switch.name] = switch_flows
+                
+        except Exception as e:
+            issues.append(f"Flow table check failed: {e}")
+            
+        return {
+            'issues': issues,
+            'recommendations': recommendations,
+            'details': details
+        }
+
+    def _check_arp_tables(self):
+        """Check ARP tables on hosts"""
+        issues = []
+        recommendations = []
+        details = {}
+        
+        try:
+            hosts = [h for h in self.net.hosts if not isinstance(h, Router)]
+            details['arp_tables'] = {}
+            
+            for host in hosts:
+                arp_info = {}
+                
+                try:
+                    # Get ARP table
+                    result = host.cmd('arp -a')
+                    arp_info['arp_output'] = result.strip()
+                    
+                    # Count ARP entries
+                    arp_lines = [line for line in result.strip().split('\n') if line and '(' in line]
+                    arp_info['arp_entries'] = len(arp_lines)
+                    
+                    if len(arp_lines) == 0:
+                        issues.append(f"Host {host.name} has empty ARP table")
+                        recommendations.append(f"Generate traffic from {host.name} to populate ARP table")
+                        
+                except Exception as e:
+                    arp_info['error'] = str(e)
+                    issues.append(f"Cannot check ARP table on {host.name}: {e}")
+                    
+                details['arp_tables'][host.name] = arp_info
+                
+        except Exception as e:
+            issues.append(f"ARP table check failed: {e}")
+            
+        return {
+            'issues': issues,
+            'recommendations': recommendations,
+            'details': details
+        }
+
+    def _check_routing_tables(self):
+        """Check routing tables on routers"""
+        issues = []
+        recommendations = []
+        details = {}
+        
+        try:
+            routers = [r for r in self.net.hosts if isinstance(r, Router) or 
+                    (hasattr(r, 'node_type') and r.node_type == 'router')]
+            details['routers_checked'] = len(routers)
+            details['routing_tables'] = {}
+            
+            for router in routers:
+                routing_info = {}
+                
+                try:
+                    # Get routing table
+                    result = router.cmd('ip route show')
+                    routing_info['routes'] = result.strip()
+                    
+                    # Count routes
+                    route_lines = [line for line in result.strip().split('\n') if line]
+                    routing_info['route_count'] = len(route_lines)
+                    
+                    # Check for default route
+                    if 'default' not in result:
+                        routing_info['has_default_route'] = False
+                    else:
+                        routing_info['has_default_route'] = True
+                    
+                    # Check IP forwarding
+                    forwarding_result = router.cmd('cat /proc/sys/net/ipv4/ip_forward')
+                    ip_forward_enabled = forwarding_result.strip() == '1'
+                    routing_info['ip_forwarding'] = ip_forward_enabled
+                    
+                    if not ip_forward_enabled:
+                        issues.append(f"IP forwarding disabled on router {router.name}")
+                        recommendations.append(f"Enable IP forwarding on router {router.name}")
+                    
+                except Exception as e:
+                    routing_info['error'] = str(e)
+                    issues.append(f"Cannot check routing on {router.name}: {e}")
+                    
+                details['routing_tables'][router.name] = routing_info
+                
+        except Exception as e:
+            issues.append(f"Routing table check failed: {e}")
+            
+        return {
+            'issues': issues,
+            'recommendations': recommendations,
+            'details': details
+        }

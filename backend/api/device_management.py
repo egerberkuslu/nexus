@@ -10,6 +10,24 @@ import re
 import time
 from datetime import datetime
 from utils.logger import setup_logger, log_api_request
+# Import all the configuration management functions
+from utils.config_manager import (
+    # Core utilities
+    validate_request_and_setup,
+    CommandPlanner,
+    
+    # Configuration processors
+    process_router_configuration,
+    process_host_configuration, 
+    process_switch_configuration,
+    
+    # Execution functions
+    execute_command_plan,
+    calculate_execution_summary
+)
+
+
+
 
 logger = setup_logger(__name__)
 device_mgmt_bp = Blueprint('device_management', __name__)
@@ -1420,6 +1438,50 @@ def _get_firewall_status(host):
         }
     except:
         return {'enabled': False, 'rules_count': 0}
+    
+def _get_firewall_status(host):
+    """Get firewall status and rules"""
+    try:
+        # Fetch all rules in a parsable format
+        iptables_output = host.cmd('iptables -L -n --line-numbers 2>/dev/null')
+        lines = iptables_output.strip().split('\n')
+
+        if 'Chain' not in iptables_output:
+            return {
+                'enabled': False,
+                'rules_count': 0,
+                'rules': []
+            }
+
+        # Skip the header lines for each chain
+        rules = []
+        current_chain = None
+        for line in lines:
+            if line.startswith('Chain'):
+                # Example: Chain INPUT (policy ACCEPT)
+                parts = line.split()
+                if len(parts) >= 2:
+                    current_chain = parts[1]
+            elif line.strip() and not line.lower().startswith('num'):
+                # Treat the full line as a rule
+                rules.append({
+                    'chain': current_chain,
+                    'rule': line.strip()
+                })
+
+        return {
+            'enabled': True,
+            'rules_count': len(rules),
+            'rules': rules
+        }
+
+    except Exception:
+        return {
+            'enabled': False,
+            'rules_count': 0,
+            'rules': []
+        }
+
 
 def _parse_switch_ports(output):
     """Parse switch port information from ovs-ofctl show output"""
@@ -1565,3 +1627,481 @@ def _parse_nat_rule(rule_line):
         rule_info['destination'] = parts[5] if len(parts) > 5 else None
     
     return rule_info
+
+# ======================= BULK CONFIG APPLY =======================
+
+
+
+# Enhanced apply_config() function with comprehensive CRUD support
+
+# ======================= ENHANCED APPLY CONFIG =======================
+
+@device_mgmt_bp.route('/apply-config', methods=['POST'])
+@log_api_request
+def apply_config():
+    """
+    Enhanced apply configuration endpoint with modular design.
+    
+    This function orchestrates the entire configuration application process
+    by delegating specific tasks to specialized functions in config_manager.py.
+    """
+    try:
+        # Phase 1: Validate request and setup
+        spec, validate_only, mininet_mgr, error_response = validate_request_and_setup()
+        if error_response:
+            return jsonify(error_response[0]), error_response[1]
+        
+        logger.info(f"Starting configuration application - validate_only: {validate_only}")
+        logger.info(f"Configuration spec summary: {len(spec.get('routers', {}))} routers, "
+                   f"{len(spec.get('hosts', {}))} hosts, {len(spec.get('switches', {}))} switches")
+        
+        # Phase 2: Initialize command planner
+        planner = CommandPlanner()
+        configuration_errors = []
+        
+        # Phase 3: Process router configurations
+        router_configs = spec.get('routers', {})
+        logger.info(f"Processing {len(router_configs)} router configurations")
+        
+        for rtr_name, rtr_cfg in router_configs.items():
+            logger.debug(f"Processing router {rtr_name} with config keys: {list(rtr_cfg.keys())}")
+            error = process_router_configuration(planner, mininet_mgr, rtr_name, rtr_cfg)
+            if error:
+                configuration_errors.append(error)
+                logger.warning(f"Router configuration error for {rtr_name}: {error}")
+        
+        # Phase 4: Process host configurations
+        host_configs = spec.get('hosts', {})
+        logger.info(f"Processing {len(host_configs)} host configurations")
+        
+        for host_name, host_cfg in host_configs.items():
+            logger.debug(f"Processing host {host_name} with config keys: {list(host_cfg.keys())}")
+            error = process_host_configuration(planner, mininet_mgr, host_name, host_cfg)
+            if error:
+                configuration_errors.append(error)
+                logger.warning(f"Host configuration error for {host_name}: {error}")
+        
+        # Phase 5: Process switch configurations
+        switch_configs = spec.get('switches', {})
+        logger.info(f"Processing {len(switch_configs)} switch configurations")
+        
+        for sw_name, sw_cfg in switch_configs.items():
+            logger.debug(f"Processing switch {sw_name} with config keys: {list(sw_cfg.keys())}")
+            error = process_switch_configuration(planner, mininet_mgr, sw_name, sw_cfg)
+            if error:
+                configuration_errors.append(error)
+                logger.warning(f"Switch configuration error for {sw_name}: {error}")
+        
+        # Log planning summary
+        plan_size = len(planner.get_plan())
+        logger.info(f"Generated execution plan with {plan_size} commands")
+        
+        if configuration_errors:
+            logger.warning(f"Found {len(configuration_errors)} configuration errors during planning")
+            for error in configuration_errors:
+                logger.warning(f"  - {error}")
+        
+        # Phase 6: Handle validation-only mode
+        if validate_only:
+            logger.info("Returning validation-only plan")
+            return jsonify({
+                'validate_only': True,
+                'plan': planner.get_plan(),
+                'configuration_errors': configuration_errors,
+                'plan_size': plan_size,
+                'timestamp': datetime.now().isoformat()
+            })
+        
+        # Phase 7: Execute command plan
+        logger.info(f"Executing command plan with {plan_size} commands")
+        if plan_size > 0:
+            execute_command_plan(planner, mininet_mgr)
+        else:
+            logger.info("No commands to execute")
+        
+        # Phase 8: Calculate results and return response
+        results = planner.get_results()
+        summary = calculate_execution_summary(results)
+        
+        logger.info(f"Configuration application completed")
+        logger.info(f"Execution summary: {summary}")
+        
+        # Log any failed commands
+        failed_results = [r for r in results if not r.get('success', False)]
+        if failed_results:
+            logger.warning(f"Found {len(failed_results)} failed commands:")
+            for result in failed_results:
+                logger.warning(f"  - {result['node']}: {result.get('error', 'Unknown error')}")
+        
+        # Log any warnings
+        warning_results = [r for r in results if r.get('warning', False)]
+        if warning_results:
+            logger.info(f"Found {len(warning_results)} commands with warnings:")
+            for result in warning_results:
+                logger.info(f"  - {result['node']}: {result.get('output', 'No output')}")
+        
+        # Determine overall success
+        overall_success = summary['failed'] == 0 and len(configuration_errors) == 0
+        
+        response_data = {
+            'success': overall_success,
+            'applied': summary['successful'],
+            'failed': summary['failed'],
+            'warnings': summary['warnings'],
+            'ignored_errors': summary['ignored_errors'],
+            'configuration_errors': configuration_errors,
+            'results': results,
+            'summary': summary,
+            'plan': planner.get_plan() if spec.get('include_plan', False) else None,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # Add detailed summary for logging
+        logger.info(f"Final response: success={overall_success}, "
+                   f"applied={summary['successful']}, failed={summary['failed']}, "
+                   f"warnings={summary['warnings']}, config_errors={len(configuration_errors)}")
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        logger.error(f"Fatal error in apply_config: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e), 
+            'traceback': traceback.format_exc(),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+# Keep all other existing endpoints from the original file...
+# (Include all the other endpoints from your original device_management.py file here)
+
+# ======================= DEVICE SNAPSHOTS (READ-ONLY) =======================
+
+@device_mgmt_bp.route('/devices/snapshots', methods=['GET'])
+@log_api_request
+def list_device_snapshots():
+    """
+    GET /api/device-management/devices/snapshots?detail=summary|full
+      - Returns snapshots for ALL devices (hosts, switches, routers, controllers)
+    """
+    try:
+        mininet_mgr = get_mininet_manager()
+        detail = (request.args.get('detail') or 'summary').lower()
+
+        if not mininet_mgr.net or not mininet_mgr.is_running:
+            return jsonify({'error': 'Network not running'}), 400
+
+        payload = {
+            'routers': [],
+            'hosts': [],
+            'switches': [],
+            'controllers': [],
+            'timestamp': datetime.now().isoformat()
+        }
+
+        # -------- Routers --------
+        for r in getattr(mininet_mgr.net, 'routers', []):
+            payload['routers'].append(_build_router_snapshot(r, detail))
+
+        # Some topologies use hosts as routers; try nodes named r*
+        if not payload['routers']:
+            for h in mininet_mgr.net.hosts:
+                if h.name.startswith('r'):
+                    payload['routers'].append(_build_router_snapshot(h, detail))
+
+        # -------- Hosts --------
+        for h in mininet_mgr.net.hosts:
+            if not h.name.startswith('r'):  # skip routers already captured above if they’re hosts
+                payload['hosts'].append(_build_host_snapshot(h, detail))
+
+        # -------- Switches --------
+        for s in mininet_mgr.net.switches:
+            payload['switches'].append(_build_switch_snapshot(s, detail))
+
+        # -------- Controllers --------
+        try:
+            ryu_status = mininet_mgr.get_controller_status()
+            payload['controllers'].append(_build_controller_snapshot(mininet_mgr, ryu_status, detail))
+        except Exception as e:
+            payload['controllers'].append({'id': 'ryu_controller', 'error': str(e)})
+
+        return jsonify({'success': True, 'devices': payload})
+    except Exception as e:
+        logger.error(f"Error listing device snapshots: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@device_mgmt_bp.route('/devices/<device_id>/snapshot', methods=['GET'])
+@log_api_request
+def get_device_snapshot(device_id):
+    """
+    GET /api/device-management/devices/<device_id>/snapshot?detail=summary|full
+      - Returns snapshot for a SINGLE device (host/router/switch/controller)
+    """
+    try:
+        mininet_mgr = get_mininet_manager()
+        detail = (request.args.get('detail') or 'full').lower()
+
+        if not mininet_mgr.net or not mininet_mgr.is_running:
+            return jsonify({'error': 'Network not running'}), 400
+
+        # Try as node
+        try:
+            node = mininet_mgr.net.get(device_id)
+        except Exception:
+            node = None
+
+        # Controller is special (not a Mininet node)
+        if device_id in ('ryu', 'ryu_controller', 'controller'):
+            ryu_status = mininet_mgr.get_controller_status()
+            return jsonify({'success': True, 'device': _build_controller_snapshot(mininet_mgr, ryu_status, detail)})
+
+        if not node:
+            return jsonify({'error': f'Device {device_id} not found'}), 404
+
+        # Heuristics for type
+        dtype = 'host'
+        if node in getattr(mininet_mgr.net, 'switches', []):
+            dtype = 'switch'
+        elif node in getattr(mininet_mgr.net, 'hosts', []) and node.name.startswith('r'):
+            dtype = 'router'
+
+        if dtype == 'router':
+            snap = _build_router_snapshot(node, detail)
+        elif dtype == 'switch':
+            snap = _build_switch_snapshot(node, detail)
+        else:
+            snap = _build_host_snapshot(node, detail)
+
+        return jsonify({'success': True, 'device': snap})
+    except Exception as e:
+        logger.error(f"Error getting device snapshot for {device_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ---------------------- SNAPSHOT BUILDERS ----------------------
+
+def _build_host_snapshot(host, detail='summary'):
+    # Current IPs (ip addr), MAC, hostname, DNS, services, routes, interfaces
+    try:
+        ip_show = host.cmd('ip -o -4 addr show | awk \'{print $2,$4}\'').strip()
+        addrs = []
+        for line in ip_show.splitlines():
+            if not line.strip():
+                continue
+            ifname, cidr = line.split()
+            addrs.append({'interface': ifname, 'address': cidr})
+
+        mac = host.MAC() if hasattr(host, 'MAC') else None
+        hostname = host.cmd('hostname').strip()
+        dns = [_ for _ in host.cmd("grep -E '^nameserver ' /etc/resolv.conf 2>/dev/null | awk '{print $2}'").split() if _]
+        default_gw = host.cmd("ip route show default 2>/dev/null | awk '/default/ {print $3}'").strip() or None
+
+        snap = {
+            'id': host.name,
+            'type': 'host',
+            'summary': {
+                'current_ip': (addrs[0]['address'] if addrs else None),
+                'mac': mac,
+                'gateway': default_gw,
+                'dns': dns
+            }
+        }
+
+        if detail == 'full':
+            snap['interfaces'] = addrs
+            snap['routes'] = _read_routes(host)
+            snap['services'] = _get_running_services(host)
+            snap['open_ports'] = _get_open_ports(host)
+            snap['firewall'] = _get_firewall_status(host)
+            snap['ifstats'] = _read_ifstats(host)
+
+        return snap
+    except Exception as e:
+        return {'id': host.name, 'type': 'host', 'error': str(e)}
+
+
+def _build_router_snapshot(router, detail='summary'):
+    try:
+        ip_forward = _check_ip_forwarding(router)
+        nat_status = _nat_enabled(router)
+        # Count configured L3 interfaces (with IPv4 addresses)
+        intfs = _read_ipv4_interfaces(router)
+
+        snap = {
+            'id': router.name,
+            'type': 'router',
+            'summary': {
+                'ip_forwarding': bool(ip_forward),
+                'nat_enabled': bool(nat_status),
+                'configured_interfaces': len(intfs),
+                'routing_protocol': 'static'  # current system assumes static
+            }
+        }
+
+        if detail == 'full':
+            snap['interfaces'] = intfs
+            snap['routes'] = _read_routes(router)
+            snap['nat'] = _read_nat(router)
+            snap['firewall'] = _get_firewall_status(router)
+            firewall_info = _get_firewall_status(router)
+            snap['firewall']['rules'] = firewall_info.get('rules', [])
+            snap['ifstats'] = _read_ifstats(router)
+
+        return snap
+    except Exception as e:
+        return {'id': router.name, 'type': 'router', 'error': str(e)}
+
+
+def _build_switch_snapshot(sw, detail='summary'):
+    try:
+        # Controller & fail-mode
+        ctrl = subprocess.run(['ovs-vsctl', 'get-controller', sw.name], capture_output=True, text=True, timeout=5)
+        controller = ctrl.stdout.strip() if ctrl.returncode == 0 else ''
+        failmode = subprocess.run(['ovs-vsctl', 'get-fail-mode', sw.name], capture_output=True, text=True, timeout=5)
+        fail_mode = failmode.stdout.strip() if failmode.returncode == 0 else ''
+
+        snap = {
+            'id': sw.name,
+            'type': 'switch',
+            'summary': {
+                'controller': controller or None,
+                'fail_mode': fail_mode or None,
+            }
+        }
+
+        if detail == 'full':
+            # OF version, DPID, flows, port stats
+            show = subprocess.run(['ovs-ofctl', 'show', sw.name], capture_output=True, text=True, timeout=5)
+            dpid = None
+            of_ver = None
+            if show.returncode == 0:
+                m = re.search(r'datapath\s+id:\s*([0-9a-f]+)', show.stdout, re.I)
+                if m: dpid = m.group(1)
+                m = re.search(r'OpenFlow\s+(\d+\.\d+)', show.stdout, re.I)
+                if m: of_ver = m.group(1)
+
+            flows_out = subprocess.run(['ovs-ofctl', 'dump-flows', sw.name, '-O', 'OpenFlow13'], capture_output=True, text=True, timeout=10)
+            flows = _parse_flow_entries(flows_out.stdout) if flows_out.returncode == 0 else []
+
+            ports_stats = subprocess.run(['ovs-ofctl', 'dump-ports', sw.name, '-O', 'OpenFlow13'], capture_output=True, text=True, timeout=10)
+            port_stats = _parse_port_statistics(ports_stats.stdout) if ports_stats.returncode == 0 else {}
+
+            snap['openflow'] = {'version': of_ver, 'dpid': dpid}
+            snap['connections'] = {'controller': controller, 'status': 'connected' if controller else 'disconnected'}
+            snap['flows'] = {'count': len(flows), 'entries': flows}
+            snap['port_statistics'] = port_stats
+
+        return snap
+    except Exception as e:
+        return {'id': sw.name, 'type': 'switch', 'error': str(e)}
+
+
+def _build_controller_snapshot(mininet_mgr, ryu_status, detail='summary'):
+    snap = {
+        'id': 'ryu_controller',
+        'type': 'controller',
+        'summary': {
+            'running': bool(ryu_status.get('running')),
+            'controller_type': 'ryu',
+            'port': ryu_status.get('port', 6633),
+            'connections': 0
+        }
+    }
+
+    if not ryu_status.get('running'):
+        return snap
+
+    # Count connected switches
+    connections = []
+    try:
+        if mininet_mgr.net:
+            for sw in mininet_mgr.net.switches:
+                co = subprocess.run(['ovs-vsctl', 'get-controller', sw.name], capture_output=True, text=True, timeout=5)
+                if co.returncode == 0 and 'tcp:' in co.stdout:
+                    connections.append({'switch_id': sw.name, 'controller_address': co.stdout.strip(), 'connected': True})
+    except Exception:
+        pass
+
+    snap['summary']['connections'] = len(connections)
+
+    if detail == 'full':
+        # stats & logs if available
+        try:
+            stats = mininet_mgr.ryu_controller.get_controller_stats()
+        except Exception:
+            stats = {}
+        try:
+            logs = mininet_mgr.get_controller_logs().get('logs', [])[-50:]
+        except Exception:
+            logs = []
+
+        snap['statistics'] = stats
+        snap['connections'] = connections
+        snap['logs'] = logs
+
+    return snap
+
+
+# ---------------------- LOW-LEVEL READERS ----------------------
+
+def _nat_enabled(router):
+    try:
+        out = router.cmd('iptables -t nat -S 2>/dev/null | grep -c MASQUERADE')
+        return int(out.strip() or '0') > 0
+    except:
+        return False
+
+def _read_nat(router):
+    info = {'chains': {'PREROUTING': [], 'POSTROUTING': [], 'OUTPUT': []}, 'masquerade': []}
+    try:
+        nat_output = router.cmd('iptables -t nat -L -n --line-numbers 2>/dev/null')
+        current_chain = None
+        for line in nat_output.strip().split('\n'):
+            line = line.strip()
+            if line.startswith('Chain'):
+                current_chain = line.split()[1]
+            elif line and not line.startswith('num') and current_chain in info['chains']:
+                rule = _parse_nat_rule(line)
+                info['chains'][current_chain].append(rule)
+                if 'MASQUERADE' in line:
+                    info['masquerade'].append(rule)
+    except Exception as e:
+        info['error'] = str(e)
+    return info
+
+def _read_routes(node):
+    routes = []
+    try:
+        out = node.cmd('ip route show')
+        for ln in out.strip().split('\n'):
+            ln = ln.strip()
+            if ln:
+                routes.append(_parse_route_entry(ln))
+    except:
+        pass
+    return routes
+
+def _read_ifstats(node):
+    stats = []
+    try:
+        for intf in [i for i in node.intfList() if i.name != 'lo']:
+            stats.append({'interface': intf.name, 'stats': _get_interface_stats(node, intf.name)})
+    except:
+        pass
+    return stats
+
+def _read_ipv4_interfaces(node):
+    res = []
+    try:
+        out = node.cmd('ip -o -4 addr show | awk \'{print $2,$4}\'')
+        for ln in out.strip().split('\n'):
+            if not ln.strip():
+                continue
+            ifname, cidr = ln.split()
+            res.append({'name': ifname, 'ip': cidr})
+    except:
+        pass
+    return res

@@ -64,5 +64,10 @@ if __name__ == "__main__":
         print("✓ api.network_routes imported successfully")
     except ImportError as e:
         print(f"✗ Failed to import api.network_routes: {e}")
+    try:
+        from utils.config_manager import CommandPlanner
+        print("✓ config_manager.CommandPlanner imported successfully")
+    except ImportError as e:
+        print(f"✗ Failed to import config_manager.CommandPlanner: {e}")
     
     print("Import test completed!")

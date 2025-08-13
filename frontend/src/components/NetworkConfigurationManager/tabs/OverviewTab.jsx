@@ -1,53 +1,132 @@
-// OverviewTab.jsx - Auto-updating with current status
+// OverviewTab.jsx - Main overview component with separated Apply Configuration
 import React, { useEffect, useState } from 'react';
-import { Monitor, Server, Router, Settings, Activity, CheckCircle, AlertCircle, Network, RefreshCw } from 'lucide-react';
-import { ConfigSection, StatusBadge, ActionButton } from '../components/FormComponents';
+import { 
+  Monitor, Server, Route, Settings, Activity,
+  CheckCircle, AlertCircle, Network, RefreshCw, ChevronRight, ChevronDown
+} from 'lucide-react';
+import ApplyConfigurationPanel from './ApplyConfigurationPanel';
 
-export const OverviewTab = ({ 
-  topology, 
-  selectedNode, 
-  onNodeSelect, 
-  apiCall, 
-  showMessage, 
-  loading, 
-  setLoading 
+const StatusBadge = ({ status, label }) => {
+  const statusClasses = {
+    healthy: 'bg-green-100 text-green-800 border-green-200',
+    warning: 'bg-yellow-100 text-yellow-800 border-yellow-200', 
+    error: 'bg-red-100 text-red-800 border-red-200',
+    info: 'bg-blue-100 text-blue-800 border-blue-200',
+    neutral: 'bg-gray-100 text-gray-800 border-gray-200'
+  };
+  
+  return (
+    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${statusClasses[status] || statusClasses.neutral}`}>
+      {label}
+    </span>
+  );
+};
+
+const ActionButton = ({ onClick, loading, icon, label, variant = 'primary', size = 'md', disabled = false }) => {
+  const baseClasses = 'inline-flex items-center gap-2 font-medium rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-offset-2';
+  const variantClasses = {
+    primary: 'bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-500',
+    secondary: 'bg-gray-100 hover:bg-gray-200 text-gray-900 focus:ring-gray-500'
+  };
+  const sizeClasses = {
+    sm: 'px-3 py-2 text-sm',
+    md: 'px-4 py-2 text-sm'
+  };
+  
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled || loading}
+      className={`${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${(disabled || loading) ? 'opacity-50 cursor-not-allowed' : ''}`}
+    >
+      {loading ? <RefreshCw size={16} className="animate-spin" /> : icon}
+      {label}
+    </button>
+  );
+};
+
+const ConfigSection = ({ title, subtitle, icon: Icon, expanded = false, actions, children }) => {
+  const [isExpanded, setIsExpanded] = useState(expanded);
+  
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm">
+      <div className="p-6 border-b border-gray-100">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-gray-100 rounded-lg">
+              <Icon size={20} className="text-gray-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-black">{title}</h3>
+              {subtitle && <p className="text-sm text-gray-500">{subtitle}</p>}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {actions}
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            </button>
+          </div>
+        </div>
+      </div>
+      {isExpanded && <div className="p-6">{children}</div>}
+    </div>
+  );
+};
+
+export const OverviewTab = ({
+  topology,
+  selectedNode,
+  onNodeSelect,
+  apiCall,
+  showMessage,
+  loading,
+  setLoading
 }) => {
-  const [networkStatus, setNetworkStatus] = useState({
-    running: false,
-    network_exists: false,
-    uptime: '00:00:00'
+  // ---------------------- STATUS STATES ----------------------
+  const [networkStatus, setNetworkStatus] = useState({ 
+    running: false, 
+    network_exists: false, 
+    uptime: '00:00:00' 
   });
+  
   const [networkMetrics, setNetworkMetrics] = useState({
-    uptime: '00:00:00',
-    bandwidth_mbps: 0,
-    latency_ms: 0,
-    active_flows: 0,
-    packets_transferred: 0,
-    total_bytes: 0
+    uptime: '00:00:00', 
+    bandwidth_mbps: 0, 
+    latency_ms: 0, 
+    active_flows: 0, 
+    packets_transferred: 0, 
+    total_bytes: 0,
+    total_interfaces: 0
   });
-  const [controllerStatus, setControllerStatus] = useState({
-    running: false,
-    controller_type: 'Unknown',
-    port: 6633,
-    connections: 0
+  
+  const [controllerStatus, setControllerStatus] = useState({ 
+    running: false, 
+    controller_type: 'Unknown', 
+    port: 6633, 
+    connections: 0,
+    memory_usage: 0
   });
 
-  // Auto-refresh data every 5 seconds
+  // ---------------------- AUTO REFRESH ----------------------
   useEffect(() => {
     const fetchAllData = async () => {
       await Promise.all([
-        fetchNetworkStatus(),
-        fetchNetworkMetrics(),
+        fetchNetworkStatus(), 
+        fetchNetworkMetrics(), 
         fetchControllerStatus()
       ]);
     };
-
+    
     fetchAllData();
     const interval = setInterval(fetchAllData, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch network status from backend
+  // ---------------------- FETCHERS ----------------------
   const fetchNetworkStatus = async () => {
     try {
       const response = await apiCall('/network/status');
@@ -59,12 +138,11 @@ export const OverviewTab = ({
           topology_summary: response.data.topology_summary || {}
         });
       }
-    } catch (error) {
-      console.error('Failed to fetch network status:', error);
+    } catch (e) {
+      console.error('Failed to fetch network status:', e);
     }
   };
 
-  // Fetch real-time network metrics
   const fetchNetworkMetrics = async () => {
     try {
       const response = await apiCall('/stats/metrics');
@@ -79,12 +157,11 @@ export const OverviewTab = ({
           total_interfaces: response.data.total_interfaces || 0
         });
       }
-    } catch (error) {
-      console.error('Failed to fetch network metrics:', error);
+    } catch (e) {
+      console.error('Failed to fetch network metrics:', e);
     }
   };
 
-  // Fetch controller status
   const fetchControllerStatus = async () => {
     try {
       const response = await apiCall('/controller/status');
@@ -97,21 +174,22 @@ export const OverviewTab = ({
           memory_usage: response.data.memory_usage || 0
         });
       }
-    } catch (error) {
-      console.error('Failed to fetch controller status:', error);
+    } catch (e) {
+      console.error('Failed to fetch controller status:', e);
     }
   };
 
+  // ---------------------- ACTIONS ----------------------
   const refreshAll = async () => {
     setLoading(true);
     try {
       await Promise.all([
-        fetchNetworkStatus(),
-        fetchNetworkMetrics(),
+        fetchNetworkStatus(), 
+        fetchNetworkMetrics(), 
         fetchControllerStatus()
       ]);
       showMessage('Status refreshed successfully', 'success');
-    } catch (error) {
+    } catch (e) {
       showMessage('Failed to refresh status', 'error');
     } finally {
       setLoading(false);
@@ -124,19 +202,18 @@ export const OverviewTab = ({
       const response = await apiCall('/network/ping', { method: 'POST' });
       if (response.success) {
         showMessage(`Ping test completed: ${response.data.result}`, 'success');
-        // Refresh metrics after ping test
         await fetchNetworkMetrics();
       } else {
         showMessage(`Ping test failed: ${response.error}`, 'error');
       }
-    } catch (error) {
-      showMessage(`Ping test error: ${error.message}`, 'error');
+    } catch (e) {
+      showMessage(`Ping test error: ${e.message}`, 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  // Calculate statistics from current topology
+  // ---------------------- VISUALIZATION HELPERS ----------------------
   const stats = {
     hosts: topology?.nodes?.filter(n => n.type === 'host').length || 0,
     switches: topology?.nodes?.filter(n => n.type === 'switch').length || 0,
@@ -149,17 +226,16 @@ export const OverviewTab = ({
   const nodeTypes = [
     { type: 'host', icon: Monitor, label: 'Hosts', count: stats.hosts, color: 'text-blue-600' },
     { type: 'switch', icon: Server, label: 'Switches', count: stats.switches, color: 'text-purple-600' },
-    { type: 'router', icon: Router, label: 'Routers', count: stats.routers, color: 'text-green-600' },
+    { type: 'router', icon: Route, label: 'Routers', count: stats.routers, color: 'text-green-600' },
     { type: 'controller', icon: Settings, label: 'Controllers', count: stats.controllers, color: 'text-red-600' }
   ];
 
   const getNodeIcon = (type) => {
-    const icons = { host: Monitor, switch: Server, router: Router, controller: Settings };
+    const icons = { host: Monitor, switch: Server, router: Route, controller: Settings };
     return icons[type] || Monitor;
   };
 
   const getNodeStatus = (node) => {
-    // Use real network status to determine node status
     if (!networkStatus.running) return 'neutral';
     if (node.status === 'active') return 'healthy';
     if (node.status === 'error') return 'error';
@@ -174,15 +250,15 @@ export const OverviewTab = ({
     return 'healthy';
   };
 
-  // Format bytes to human readable
   const formatBytes = (bytes) => {
     if (bytes === 0) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
   };
 
+  // ---------------------- RENDER ----------------------
   return (
     <div className="space-y-6 text-black">
       {/* Network Health Overview */}
@@ -201,7 +277,8 @@ export const OverviewTab = ({
             size="sm"
           />
         </div>
-        
+
+        {/* Status Overview */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div className="flex items-center gap-3">
             <StatusBadge 
@@ -211,21 +288,15 @@ export const OverviewTab = ({
           </div>
           <div className="flex items-center gap-3">
             <StatusBadge 
-              status={controllerStatus.running ? "healthy" : "warning"} 
+              status={controllerStatus.running ? 'healthy' : 'warning'} 
               label={`Controller: ${controllerStatus.running ? 'Running' : 'Stopped'}`} 
             />
           </div>
           <div className="flex items-center gap-3">
-            <StatusBadge 
-              status="info" 
-              label={`${stats.totalNodes} Total Nodes`} 
-            />
+            <StatusBadge status="info" label={`${stats.totalNodes} Total Nodes`} />
           </div>
           <div className="flex items-center gap-3">
-            <StatusBadge 
-              status="info" 
-              label={`${stats.totalLinks} Links`} 
-            />
+            <StatusBadge status="info" label={`${stats.totalLinks} Links`} />
           </div>
         </div>
 
@@ -246,22 +317,6 @@ export const OverviewTab = ({
           <div className="text-center">
             <p className="text-sm text-gray-600">Active Flows</p>
             <p className="text-lg font-bold text-black">{networkMetrics.active_flows}</p>
-          </div>
-        </div>
-
-        {/* Additional Metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-blue-50 rounded-lg">
-          <div className="text-center">
-            <p className="text-sm text-gray-600">Packets Transferred</p>
-            <p className="text-lg font-bold text-black">{networkMetrics.packets_transferred.toLocaleString()}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-sm text-gray-600">Total Bytes</p>
-            <p className="text-lg font-bold text-black">{formatBytes(networkMetrics.total_bytes)}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-sm text-gray-600">Interfaces</p>
-            <p className="text-lg font-bold text-black">{networkMetrics.total_interfaces}</p>
           </div>
         </div>
 
@@ -295,10 +350,18 @@ export const OverviewTab = ({
         </div>
       </div>
 
+      {/* Apply Configuration Panel - Separated Component */}
+      <ApplyConfigurationPanel 
+        apiCall={apiCall}
+        showMessage={showMessage}
+        networkStatus={networkStatus}
+        refreshAll={refreshAll}
+      />
+
       {/* Node Selection */}
-      <ConfigSection
-        title="Select Node to Configure"
-        icon={Network}
+      <ConfigSection 
+        title="Select Node to Configure" 
+        icon={Network} 
         expanded={true}
       >
         {topology?.nodes?.length > 0 ? (
@@ -312,21 +375,23 @@ export const OverviewTab = ({
                 <button
                   key={node.id}
                   onClick={() => onNodeSelect(node)}
-                  className={`
-                    relative p-4 rounded-xl border-2 text-left transition-all
-                    ${isSelected 
-                      ? 'border-blue-500 bg-blue-50 shadow-md' 
+                  className={`relative p-4 rounded-xl border-2 text-left transition-all ${
+                    isSelected
+                      ? 'border-blue-500 bg-blue-50 shadow-md'
                       : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-sm'
-                    }
-                  `}
+                  }`}
                 >
-                  {/* Status indicator */}
-                  <div className={`absolute top-3 right-3 w-2 h-2 rounded-full ${
-                    status === 'healthy' ? 'bg-green-500' :
-                    status === 'warning' ? 'bg-yellow-500' :
-                    status === 'error' ? 'bg-red-500' : 'bg-gray-400'
-                  }`} />
-
+                  <div
+                    className={`absolute top-3 right-3 w-2 h-2 rounded-full ${
+                      status === 'healthy'
+                        ? 'bg-green-500'
+                        : status === 'warning'
+                        ? 'bg-yellow-500'
+                        : status === 'error'
+                        ? 'bg-red-500'
+                        : 'bg-gray-400'
+                    }`}
+                  />
                   <div className="flex items-start gap-3">
                     <div className="p-2 bg-gray-100 rounded-lg">
                       <Icon size={20} className="text-black opacity-70" />
@@ -334,9 +399,7 @@ export const OverviewTab = ({
                     <div className="flex-1">
                       <h4 className="font-medium text-black">{node.id}</h4>
                       <p className="text-xs text-gray-600 capitalize">{node.type}</p>
-                      {node.ip && (
-                        <p className="text-xs text-black mt-1 font-mono">{node.ip}</p>
-                      )}
+                      {node.ip && <p className="text-xs text-black mt-1 font-mono">{node.ip}</p>}
                       {node.type === 'switch' && node.controller && (
                         <p className="text-xs text-gray-500 mt-1">Controller: {node.controller}</p>
                       )}
@@ -362,11 +425,7 @@ export const OverviewTab = ({
 
       {/* Selected Node Details */}
       {selectedNode && (
-        <ConfigSection
-          title="Node Information"
-          icon={Activity}
-          expanded={true}
-        >
+        <ConfigSection title="Node Information" icon={Activity} expanded={true}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-gray-500">Node ID</label>
@@ -390,9 +449,9 @@ export const OverviewTab = ({
             )}
             <div>
               <label className="text-xs text-gray-500">Status</label>
-              <StatusBadge 
-                status={getNodeStatus(selectedNode)} 
-                label={networkStatus.running ? (selectedNode.status || 'Active') : 'Inactive'} 
+              <StatusBadge
+                status={getNodeStatus(selectedNode)}
+                label={networkStatus.running ? selectedNode.status || 'Active' : 'Inactive'}
               />
             </div>
             {selectedNode.type === 'switch' && selectedNode.controller && (
@@ -404,11 +463,16 @@ export const OverviewTab = ({
             {selectedNode.type === 'router' && selectedNode.interfaces && (
               <div className="md:col-span-2">
                 <label className="text-xs text-gray-500">Interfaces</label>
-                <div className="mt-1">
+                <div className="mt-1 space-y-1">
                   {selectedNode.interfaces.map((intf, index) => (
-                    <p key={index} className="text-sm text-black font-mono">
-                      {intf.name}: {intf.ip}
-                    </p>
+                    <div key={index} className="bg-gray-50 rounded p-2">
+                      <p className="text-sm text-black font-mono">
+                        <span className="font-semibold">{intf.name}:</span> {intf.ip}
+                      </p>
+                      {intf.mac && intf.mac !== 'unknown' && (
+                        <p className="text-xs text-gray-600 font-mono">MAC: {intf.mac}</p>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -427,6 +491,12 @@ export const OverviewTab = ({
                   <label className="text-xs text-gray-500">Connections</label>
                   <p className="font-medium text-black">{controllerStatus.connections}</p>
                 </div>
+                {controllerStatus.memory_usage > 0 && (
+                  <div>
+                    <label className="text-xs text-gray-500">Memory Usage</label>
+                    <p className="font-medium text-black">{controllerStatus.memory_usage.toFixed(1)} MB</p>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -438,17 +508,18 @@ export const OverviewTab = ({
         </ConfigSection>
       )}
 
-      {/* Network Statistics */}
+      {/* Bottom Stats Dashboard */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md transition-all">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">Network Issues</p>
-              <p className="text-2xl font-bold text-black">
-                {topology?.issues?.length || 0}
+              <p className="text-2xl font-bold text-black">{topology?.issues?.length || 0}</p>
+              <p className="text-xs text-gray-400 mt-1">
+                {topology?.issues?.length === 0 ? 'All systems normal' : 'Issues detected'}
               </p>
             </div>
-            <AlertCircle className="w-8 h-8 text-yellow-500" />
+            <AlertCircle className={`w-8 h-8 ${topology?.issues?.length > 0 ? 'text-red-500' : 'text-green-500'}`} />
           </div>
         </div>
         
@@ -457,7 +528,7 @@ export const OverviewTab = ({
             <div>
               <p className="text-sm text-gray-500">Components</p>
               <p className="text-2xl font-bold text-black">{stats.totalNodes}</p>
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-gray-400 mt-1">
                 {networkStatus.running ? `${stats.totalNodes} active` : '0 active'}
               </p>
             </div>
@@ -468,42 +539,18 @@ export const OverviewTab = ({
         <div className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md transition-all">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Packet Loss</p>
-              <p className="text-sm font-medium text-black">0%</p>
-              <p className="text-xs text-gray-400">Last ping test</p>
+              <p className="text-sm text-gray-500">Data Transfer</p>
+              <p className="text-lg font-bold text-black">{formatBytes(networkMetrics.total_bytes)}</p>
+              <p className="text-xs text-gray-400 mt-1">
+                {networkMetrics.packets_transferred} packets transferred
+              </p>
             </div>
-            <Activity className="w-8 h-8 text-gray-400" />
+            <Activity className="w-8 h-8 text-blue-500" />
           </div>
         </div>
       </div>
-
-      {/* Controller Information */}
-      {controllerStatus.running && (
-        <ConfigSection
-          title="Controller Information"
-          icon={Settings}
-          expanded={false}
-        >
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div>
-              <label className="text-xs text-gray-500">Type</label>
-              <p className="font-medium text-black">{controllerStatus.controller_type}</p>
-            </div>
-            <div>
-              <label className="text-xs text-gray-500">Port</label>
-              <p className="font-medium text-black">{controllerStatus.port}</p>
-            </div>
-            <div>
-              <label className="text-xs text-gray-500">Connections</label>
-              <p className="font-medium text-black">{controllerStatus.connections}</p>
-            </div>
-            <div>
-              <label className="text-xs text-gray-500">Memory Usage</label>
-              <p className="font-medium text-black">{controllerStatus.memory_usage}%</p>
-            </div>
-          </div>
-        </ConfigSection>
-      )}
     </div>
   );
 };
+
+export default OverviewTab;

@@ -27,80 +27,28 @@ const apiCall = async (endpoint, options = {}) => {
   }
 };
 
-// ======================= HOST MANAGEMENT HOOKS =======================
+// ======================= BULK CONFIGURATION HOOK =======================
 
-export const useHosts = () => {
-  const [hosts, setHosts] = useState([]);
+/**
+ * useApplyConfig - Apply bulk configuration to multiple devices at once
+ * Uses the new /apply-config endpoint with enhanced JSON spec
+ */
+export const useApplyConfig = () => {
+  const [plan, setPlan] = useState(null);
+  const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const fetchHosts = useCallback(async () => {
+  const previewConfig = useCallback(async (spec) => {
     setLoading(true);
     setError(null);
+    setPlan(null);
     try {
-      const data = await apiCall('/api/device-management/hosts');
-      setHosts(data.hosts || []);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchHosts();
-  }, [fetchHosts]);
-
-  const refreshHosts = useCallback(() => {
-    fetchHosts();
-  }, [fetchHosts]);
-
-  return { hosts, loading, error, refreshHosts };
-};
-
-export const useHostDetails = (hostId) => {
-  const [hostDetails, setHostDetails] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  const fetchHostDetails = useCallback(async () => {
-    if (!hostId) return;
-    
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiCall(`/api/device-management/hosts/${hostId}`);
-      setHostDetails(data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [hostId]);
-
-  useEffect(() => {
-    fetchHostDetails();
-  }, [fetchHostDetails]);
-
-  const refreshHostDetails = useCallback(() => {
-    fetchHostDetails();
-  }, [fetchHostDetails]);
-
-  return { hostDetails, loading, error, refreshHostDetails };
-};
-
-export const useHostConfiguration = () => {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  const configureHost = useCallback(async (hostId, config) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiCall(`/api/device-management/hosts/${hostId}/configure`, {
+      const data = await apiCall('/api/device-management/apply-config', {
         method: 'POST',
-        body: JSON.stringify(config),
+        body: JSON.stringify({ ...spec, validate_only: true }),
       });
+      setPlan(data.plan || []);
       return data;
     } catch (err) {
       setError(err.message);
@@ -110,40 +58,16 @@ export const useHostConfiguration = () => {
     }
   }, []);
 
-  return { configureHost, loading, error };
-};
-
-export const useHostServices = (hostId) => {
-  const [services, setServices] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  const fetchServices = useCallback(async () => {
-    if (!hostId) return;
-    
+  const applyConfig = useCallback(async (spec) => {
     setLoading(true);
     setError(null);
+    setResult(null);
     try {
-      const data = await apiCall(`/api/device-management/hosts/${hostId}/services`);
-      setServices(data.services || []);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [hostId]);
-
-  const manageService = useCallback(async (action, service, port = 8080) => {
-    if (!hostId) throw new Error('Host ID is required');
-    
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiCall(`/api/device-management/hosts/${hostId}/services`, {
+      const data = await apiCall('/api/device-management/apply-config', {
         method: 'POST',
-        body: JSON.stringify({ action, service, port }),
+        body: JSON.stringify({ ...spec, validate_only: false }),
       });
-      await fetchServices(); // Refresh services list
+      setResult(data);
       return data;
     } catch (err) {
       setError(err.message);
@@ -151,527 +75,456 @@ export const useHostServices = (hostId) => {
     } finally {
       setLoading(false);
     }
-  }, [hostId, fetchServices]);
+  }, []);
 
-  useEffect(() => {
-    fetchServices();
-  }, [fetchServices]);
+  const buildRouterConfig = useCallback((routerId, config) => {
+    const spec = { routers: {} };
+    spec.routers[routerId] = {
+      sysctl: {},
+      interfaces: [],
+      routes: [],
+      commands: []
+    };
 
-  const startService = useCallback((service, port) => 
-    manageService('start', service, port), [manageService]);
-  
-  const stopService = useCallback((service) => 
-    manageService('stop', service), [manageService]);
+    // IP forwarding
+    if (config.ipForwarding !== undefined) {
+      spec.routers[routerId].sysctl['net.ipv4.ip_forward'] = config.ipForwarding ? '1' : '0';
+    }
 
-  const refreshServices = useCallback(() => {
-    fetchServices();
-  }, [fetchServices]);
+    // Interfaces
+    if (config.interfaces?.length > 0) {
+      spec.routers[routerId].interfaces = config.interfaces.map(intf => ({
+        name: intf.name,
+        flush: true,
+        addresses: intf.ip ? [`${intf.ip}/${intf.prefix || '24'}`] : [],
+        state: 'up'
+      }));
+    }
+
+    // Routes
+    if (config.routes?.length > 0) {
+      spec.routers[routerId].routes = config.routes.map(route => ({
+        action: route.action || 'add',
+        destination: route.destination,
+        via: route.gateway,
+        dev: route.interface
+      }));
+    }
+
+    // NAT
+    if (config.nat_enabled) {
+      spec.routers[routerId].commands.push(
+        'iptables -t nat -F POSTROUTING 2>/dev/null || true',
+        'iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE'
+      );
+    }
+
+    // Firewall rules
+    if (config.firewall_rules?.length > 0) {
+      config.firewall_rules.forEach(rule => {
+        spec.routers[routerId].commands.push(
+          `iptables ${rule.action} ${rule.chain} ${rule.parameters}`
+        );
+      });
+    }
+
+    return spec;
+  }, []);
+
+  const buildHostConfig = useCallback((hostId, config) => {
+    const spec = { hosts: {} };
+    spec.hosts[hostId] = {
+      interfaces: [],
+      routes: [],
+      commands: []
+    };
+
+    // Primary interface configuration
+    if (config.ip) {
+      const prefix = config.netmask ? netmaskToPrefix(config.netmask) : '24';
+      spec.hosts[hostId].interfaces.push({
+        name: `${hostId}-eth0`,
+        addresses: [`${config.ip}/${prefix}`]
+      });
+    }
+
+    // Default gateway
+    if (config.gateway) {
+      spec.hosts[hostId].routes.push(
+        { action: 'del', destination: 'default', ignore_error: true },
+        { action: 'add', destination: 'default', via: config.gateway }
+      );
+    }
+
+    // DNS servers
+    if (config.dns?.length > 0) {
+      spec.hosts[hostId].commands.push('echo "# Auto-configured DNS" > /etc/resolv.conf');
+      config.dns.forEach(dns => {
+        spec.hosts[hostId].commands.push(`echo "nameserver ${dns}" >> /etc/resolv.conf`);
+      });
+    }
+
+    // Hostname
+    if (config.hostname) {
+      spec.hosts[hostId].commands.push(
+        `hostname ${config.hostname}`,
+        `echo "127.0.0.1 ${config.hostname}" >> /etc/hosts`
+      );
+    }
+
+    // Static routes
+    if (config.routes?.length > 0) {
+      config.routes.forEach(route => {
+        if (route.network && route.gateway) {
+          spec.hosts[hostId].routes.push({
+            action: 'add',
+            destination: route.network,
+            via: route.gateway
+          });
+        }
+      });
+    }
+
+    return spec;
+  }, []);
+
+  const buildSwitchConfig = useCallback((switchId, config) => {
+    const spec = { switches: {} };
+    spec.switches[switchId] = {
+      ovs: {},
+      commands: []
+    };
+
+    // Controller configuration
+    if (config.controller_ip && config.controller_port) {
+      spec.switches[switchId].ovs['set-controller'] = 
+        `tcp:${config.controller_ip}:${config.controller_port}`;
+    }
+
+    // Fail mode
+    if (config.fail_mode) {
+      spec.switches[switchId].ovs['fail-mode'] = config.fail_mode;
+    }
+
+    // OpenFlow version
+    if (config.openflow_version) {
+      const version = config.openflow_version.replace('.', '');
+      spec.switches[switchId].ovs.other_cfg = [
+        `ovs-vsctl set bridge ${switchId} protocols=OpenFlow${version}`
+      ];
+    }
+
+    // DPID
+    if (config.dpid && config.dpid !== 'auto') {
+      spec.switches[switchId].ovs.other_cfg = spec.switches[switchId].ovs.other_cfg || [];
+      spec.switches[switchId].ovs.other_cfg.push(
+        `ovs-vsctl set bridge ${switchId} other-config:datapath-id=${config.dpid}`
+      );
+    }
+
+    return spec;
+  }, []);
+
+  const netmaskToPrefix = (netmask) => {
+    const parts = netmask.split('.');
+    let bits = 0;
+    parts.forEach(part => {
+      const num = parseInt(part);
+      for (let i = 7; i >= 0; i--) {
+        if ((num >> i) & 1) bits++;
+      }
+    });
+    return bits.toString();
+  };
 
   return { 
-    services, 
+    plan, 
+    result, 
     loading, 
     error, 
-    startService, 
-    stopService, 
-    refreshServices 
+    previewConfig, 
+    applyConfig,
+    buildRouterConfig,
+    buildHostConfig,
+    buildSwitchConfig
   };
 };
 
-// ======================= SWITCH MANAGEMENT HOOKS =======================
+// ======================= DEVICE SNAPSHOT HOOKS =======================
 
-export const useSwitches = () => {
-  const [switches, setSwitches] = useState([]);
+/**
+ * useDeviceSnapshots - Get current state of all devices
+ */
+export const useDeviceSnapshots = () => {
+  const [snapshots, setSnapshots] = useState({
+    routers: [],
+    hosts: [],
+    switches: [],
+    controllers: []
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const fetchSwitches = useCallback(async () => {
+  const fetchSnapshots = useCallback(async (detail = 'full') => {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiCall('/api/device-management/switches');
-      setSwitches(data.switches || []);
+      const data = await apiCall(`/api/device-management/devices/snapshots?detail=${detail}`);
+      if (data.success && data.devices) {
+        setSnapshots(data.devices);
+      }
+      return data.devices;
     } catch (err) {
       setError(err.message);
+      throw err;
     } finally {
       setLoading(false);
     }
   }, []);
 
+  const refreshSnapshots = useCallback(() => {
+    return fetchSnapshots('full');
+  }, [fetchSnapshots]);
+
   useEffect(() => {
-    fetchSwitches();
-  }, [fetchSwitches]);
+    fetchSnapshots('summary');
+  }, [fetchSnapshots]);
 
-  const refreshSwitches = useCallback(() => {
-    fetchSwitches();
-  }, [fetchSwitches]);
-
-  return { switches, loading, error, refreshSwitches };
+  return { snapshots, loading, error, refreshSnapshots, fetchSnapshots };
 };
 
-export const useSwitchFlows = (switchId) => {
-  const [flows, setFlows] = useState([]);
+/**
+ * useDeviceSnapshot - Get current state of a single device
+ */
+export const useDeviceSnapshot = (deviceId) => {
+  const [snapshot, setSnapshot] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const fetchFlows = useCallback(async () => {
-    if (!switchId) return;
-    
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiCall(`/api/device-management/switches/${switchId}/flows`);
-      setFlows(data.flows || []);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [switchId]);
-
-  const addFlow = useCallback(async (flowConfig) => {
-    if (!switchId) throw new Error('Switch ID is required');
-    
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiCall(`/api/device-management/switches/${switchId}/flows`, {
-        method: 'POST',
-        body: JSON.stringify(flowConfig),
-      });
-      await fetchFlows(); // Refresh flows list
-      return data;
-    } catch (err) {
-      setError(err.message);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [switchId, fetchFlows]);
-
-  const deleteFlows = useCallback(async (filter = '') => {
-    if (!switchId) throw new Error('Switch ID is required');
-    
-    setLoading(true);
-    setError(null);
-    try {
-      const url = filter ? 
-        `/api/device-management/switches/${switchId}/flows?filter=${encodeURIComponent(filter)}` :
-        `/api/device-management/switches/${switchId}/flows`;
-      
-      const data = await apiCall(url, { method: 'DELETE' });
-      await fetchFlows(); // Refresh flows list
-      return data;
-    } catch (err) {
-      setError(err.message);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [switchId, fetchFlows]);
-
-  useEffect(() => {
-    fetchFlows();
-  }, [fetchFlows]);
-
-  const refreshFlows = useCallback(() => {
-    fetchFlows();
-  }, [fetchFlows]);
-
-  return { 
-    flows, 
-    loading, 
-    error, 
-    addFlow, 
-    deleteFlows, 
-    refreshFlows 
-  };
-};
-
-export const useSwitchPorts = (switchId) => {
-  const [ports, setPorts] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  const fetchPorts = useCallback(async () => {
-    if (!switchId) return;
-    
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiCall(`/api/device-management/switches/${switchId}/ports`);
-      setPorts(data.ports || []);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [switchId]);
-
-  const configurePorts = useCallback(async (portConfig) => {
-    if (!switchId) throw new Error('Switch ID is required');
-    
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiCall(`/api/device-management/switches/${switchId}/ports`, {
-        method: 'POST',
-        body: JSON.stringify(portConfig),
-      });
-      await fetchPorts(); // Refresh ports list
-      return data;
-    } catch (err) {
-      setError(err.message);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [switchId, fetchPorts]);
-
-  useEffect(() => {
-    fetchPorts();
-  }, [fetchPorts]);
-
-  const refreshPorts = useCallback(() => {
-    fetchPorts();
-  }, [fetchPorts]);
-
-  return { 
-    ports, 
-    loading, 
-    error, 
-    configurePorts, 
-    refreshPorts 
-  };
-};
-
-// ======================= ROUTER MANAGEMENT HOOKS =======================
-
-export const useRouters = () => {
-  const [routers, setRouters] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  const fetchRouters = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiCall('/api/device-management/routers');
-      setRouters(data.routers || []);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchRouters();
-  }, [fetchRouters]);
-
-  const refreshRouters = useCallback(() => {
-    fetchRouters();
-  }, [fetchRouters]);
-
-  return { routers, loading, error, refreshRouters };
-};
-
-export const useRouterRouting = (routerId) => {
-  const [routingInfo, setRoutingInfo] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  const fetchRoutingInfo = useCallback(async () => {
-    if (!routerId) return;
-    
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiCall(`/api/device-management/routers/${routerId}/routing`);
-      setRoutingInfo(data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [routerId]);
-
-  const addRoute = useCallback(async (routeConfig) => {
-    if (!routerId) throw new Error('Router ID is required');
-    
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiCall(`/api/device-management/routers/${routerId}/routing`, {
-        method: 'POST',
-        body: JSON.stringify(routeConfig),
-      });
-      await fetchRoutingInfo(); // Refresh routing info
-      return data;
-    } catch (err) {
-      setError(err.message);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [routerId, fetchRoutingInfo]);
-
-  const deleteRoute = useCallback(async (destination) => {
-    if (!routerId) throw new Error('Router ID is required');
+  const fetchSnapshot = useCallback(async (detail = 'full') => {
+    if (!deviceId) return null;
     
     setLoading(true);
     setError(null);
     try {
       const data = await apiCall(
-        `/api/device-management/routers/${routerId}/routing?destination=${encodeURIComponent(destination)}`,
-        { method: 'DELETE' }
+        `/api/device-management/devices/${deviceId}/snapshot?detail=${detail}`
       );
-      await fetchRoutingInfo(); // Refresh routing info
-      return data;
-    } catch (err) {
-      setError(err.message);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [routerId, fetchRoutingInfo]);
-
-  useEffect(() => {
-    fetchRoutingInfo();
-  }, [fetchRoutingInfo]);
-
-  const refreshRoutingInfo = useCallback(() => {
-    fetchRoutingInfo();
-  }, [fetchRoutingInfo]);
-
-  return { 
-    routingInfo, 
-    loading, 
-    error, 
-    addRoute, 
-    deleteRoute, 
-    refreshRoutingInfo 
-  };
-};
-
-export const useRouterNAT = (routerId) => {
-  const [natInfo, setNatInfo] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  const fetchNATInfo = useCallback(async () => {
-    if (!routerId) return;
-    
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiCall(`/api/device-management/routers/${routerId}/nat`);
-      setNatInfo(data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [routerId]);
-
-  const addNATRule = useCallback(async (natConfig) => {
-    if (!routerId) throw new Error('Router ID is required');
-    
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiCall(`/api/device-management/routers/${routerId}/nat`, {
-        method: 'POST',
-        body: JSON.stringify(natConfig),
-      });
-      await fetchNATInfo(); // Refresh NAT info
-      return data;
-    } catch (err) {
-      setError(err.message);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [routerId, fetchNATInfo]);
-
-  const deleteNATRule = useCallback(async (chain, ruleNumber = null) => {
-    if (!routerId) throw new Error('Router ID is required');
-    
-    setLoading(true);
-    setError(null);
-    try {
-      let url = `/api/device-management/routers/${routerId}/nat?chain=${chain}`;
-      if (ruleNumber) {
-        url += `&rule_number=${ruleNumber}`;
+      if (data.success && data.device) {
+        setSnapshot(data.device);
       }
-      
-      const data = await apiCall(url, { method: 'DELETE' });
-      await fetchNATInfo(); // Refresh NAT info
-      return data;
+      return data.device;
     } catch (err) {
       setError(err.message);
-      throw err;
+      return null;
     } finally {
       setLoading(false);
     }
-  }, [routerId, fetchNATInfo]);
+  }, [deviceId]);
+
+  const refreshSnapshot = useCallback(() => {
+    return fetchSnapshot('full');
+  }, [fetchSnapshot]);
 
   useEffect(() => {
-    fetchNATInfo();
-  }, [fetchNATInfo]);
+    if (deviceId) {
+      fetchSnapshot('full');
+    }
+  }, [deviceId, fetchSnapshot]);
 
-  const refreshNATInfo = useCallback(() => {
-    fetchNATInfo();
-  }, [fetchNATInfo]);
-
-  return { 
-    natInfo, 
-    loading, 
-    error, 
-    addNATRule, 
-    deleteNATRule, 
-    refreshNATInfo 
-  };
+  return { snapshot, loading, error, refreshSnapshot };
 };
 
-// ======================= CONTROLLER MANAGEMENT HOOKS =======================
+// ======================= COMMAND EXECUTION HOOK =======================
 
-export const useControllers = () => {
-  const [controllers, setControllers] = useState([]);
+/**
+ * useCommandExecution - Execute commands on nodes
+ */
+export const useCommandExecution = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const fetchControllers = useCallback(async () => {
+  const executeCommand = useCallback(async (nodeId, command) => {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiCall('/api/device-management/controllers');
-      setControllers(data.controllers || []);
+      const response = await apiCall(`/api/network/hosts/${nodeId}/cmd`, {
+        method: 'POST',
+        body: JSON.stringify({ command })
+      });
+      
+      if (response.success && response.data) {
+        return response.data;
+      } else {
+        throw new Error(response.error || 'Command execution failed');
+      }
     } catch (err) {
       setError(err.message);
+      throw err;
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchControllers();
-  }, [fetchControllers]);
-
-  const refreshControllers = useCallback(() => {
-    fetchControllers();
-  }, [fetchControllers]);
-
-  return { controllers, loading, error, refreshControllers };
+  return { executeCommand, loading, error };
 };
 
-export const useControllerFlows = (controllerId) => {
-  const [controllerFlows, setControllerFlows] = useState(null);
+// ======================= CONTROLLER MANAGEMENT HOOKS =======================
+
+export const useControllerManagement = () => {
+  const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const fetchControllerFlows = useCallback(async () => {
-    if (!controllerId) return;
-    
+  const fetchStatus = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiCall(`/api/device-management/controllers/${controllerId}/flows`);
-      setControllerFlows(data);
+      const response = await apiCall('/api/controller/status');
+      if (response.success) {
+        setStatus(response.data);
+      }
+      return response.data;
     } catch (err) {
       setError(err.message);
+      return null;
     } finally {
       setLoading(false);
     }
-  }, [controllerId]);
+  }, []);
+
+  const startController = useCallback(async (config) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await apiCall('/api/controller/start', {
+        method: 'POST',
+        body: JSON.stringify(config)
+      });
+      await fetchStatus();
+      return response;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchStatus]);
+
+  const stopController = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await apiCall('/api/controller/stop', { method: 'POST' });
+      await fetchStatus();
+      return response;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchStatus]);
+
+  const restartController = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await apiCall('/api/controller/restart', { method: 'POST' });
+      await fetchStatus();
+      return response;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchStatus]);
 
   useEffect(() => {
-    fetchControllerFlows();
-  }, [fetchControllerFlows]);
+    fetchStatus();
+  }, [fetchStatus]);
 
-  const refreshControllerFlows = useCallback(() => {
-    fetchControllerFlows();
-  }, [fetchControllerFlows]);
-
-  return { controllerFlows, loading, error, refreshControllerFlows };
+  return {
+    status,
+    loading,
+    error,
+    fetchStatus,
+    startController,
+    stopController,
+    restartController
+  };
 };
 
 // ======================= COMBINED DEVICE MANAGEMENT HOOK =======================
 
 export const useNetworkDevices = () => {
-  const { hosts, loading: hostsLoading, error: hostsError, refreshHosts } = useHosts();
-  const { switches, loading: switchesLoading, error: switchesError, refreshSwitches } = useSwitches();
-  const { routers, loading: routersLoading, error: routersError, refreshRouters } = useRouters();
-  const { controllers, loading: controllersLoading, error: controllersError, refreshControllers } = useControllers();
+  const { snapshots, loading: snapshotsLoading, error: snapshotsError, refreshSnapshots } = useDeviceSnapshots();
+  const { applyConfig, buildRouterConfig, buildHostConfig, buildSwitchConfig } = useApplyConfig();
 
-  const loading = hostsLoading || switchesLoading || routersLoading || controllersLoading;
-  const error = hostsError || switchesError || routersError || controllersError;
+  const loading = snapshotsLoading;
+  const error = snapshotsError;
 
   const refreshAll = useCallback(() => {
-    refreshHosts();
-    refreshSwitches();
-    refreshRouters();
-    refreshControllers();
-  }, [refreshHosts, refreshSwitches, refreshRouters, refreshControllers]);
+    return refreshSnapshots();
+  }, [refreshSnapshots]);
 
   const getAllDevices = useCallback(() => {
     return [
-      ...hosts.map(h => ({ ...h, deviceType: 'host' })),
-      ...switches.map(s => ({ ...s, deviceType: 'switch' })),
-      ...routers.map(r => ({ ...r, deviceType: 'router' })),
-      ...controllers.map(c => ({ ...c, deviceType: 'controller' }))
+      ...snapshots.hosts.map(h => ({ ...h, deviceType: 'host' })),
+      ...snapshots.switches.map(s => ({ ...s, deviceType: 'switch' })),
+      ...snapshots.routers.map(r => ({ ...r, deviceType: 'router' })),
+      ...snapshots.controllers.map(c => ({ ...c, deviceType: 'controller' }))
     ];
-  }, [hosts, switches, routers, controllers]);
+  }, [snapshots]);
 
   const getDeviceById = useCallback((deviceId) => {
     const allDevices = getAllDevices();
     return allDevices.find(device => device.id === deviceId);
   }, [getAllDevices]);
 
-  const getDevicesByType = useCallback((deviceType) => {
-    switch (deviceType.toLowerCase()) {
-      case 'host':
-        return hosts;
-      case 'switch':
-        return switches;
+  const configureDevice = useCallback(async (deviceId, deviceType, config) => {
+    let spec = {};
+    
+    switch (deviceType) {
       case 'router':
-        return routers;
-      case 'controller':
-        return controllers;
+        spec = buildRouterConfig(deviceId, config);
+        break;
+      case 'host':
+        spec = buildHostConfig(deviceId, config);
+        break;
+      case 'switch':
+        spec = buildSwitchConfig(deviceId, config);
+        break;
       default:
-        return [];
+        throw new Error(`Unknown device type: ${deviceType}`);
     }
-  }, [hosts, switches, routers, controllers]);
+    
+    return applyConfig(spec);
+  }, [applyConfig, buildRouterConfig, buildHostConfig, buildSwitchConfig]);
 
   return {
-    // Individual device types
-    hosts,
-    switches,
-    routers,
-    controllers,
-    
-    // Loading and error states
+    hosts: snapshots.hosts,
+    switches: snapshots.switches,
+    routers: snapshots.routers,
+    controllers: snapshots.controllers,
     loading,
     error,
-    
-    // Utility functions
     refreshAll,
     getAllDevices,
     getDeviceById,
-    getDevicesByType,
-    
-    // Individual refresh functions
-    refreshHosts,
-    refreshSwitches,
-    refreshRouters,
-    refreshControllers,
-    
-    // Counts
+    configureDevice,
+    applyConfig,
+    buildRouterConfig,
+    buildHostConfig,
+    buildSwitchConfig,
     deviceCounts: {
-      hosts: hosts.length,
-      switches: switches.length,
-      routers: routers.length,
-      controllers: controllers.length,
-      total: hosts.length + switches.length + routers.length + controllers.length
+      hosts: snapshots.hosts.length,
+      switches: snapshots.switches.length,
+      routers: snapshots.routers.length,
+      controllers: snapshots.controllers.length,
+      total: snapshots.hosts.length + snapshots.switches.length + 
+             snapshots.routers.length + snapshots.controllers.length
     }
   };
 };
@@ -697,18 +550,11 @@ export const useDevicePolling = (interval = 10000) => {
 
 // Export default for easy importing
 export default {
-  useHosts,
-  useHostDetails,
-  useHostConfiguration,
-  useHostServices,
-  useSwitches,
-  useSwitchFlows,
-  useSwitchPorts,
-  useRouters,
-  useRouterRouting,
-  useRouterNAT,
-  useControllers,
-  useControllerFlows,
+  useApplyConfig,
+  useDeviceSnapshots,
+  useDeviceSnapshot,
+  useCommandExecution,
+  useControllerManagement,
   useNetworkDevices,
   usePolling,
   useDevicePolling

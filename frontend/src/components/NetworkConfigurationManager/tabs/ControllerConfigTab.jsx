@@ -1,4 +1,4 @@
-// ControllerConfigTab.jsx - Auto-updating with current status
+// ControllerConfigTab.jsx - Using controller management hooks and snapshots
 import React, { useState, useEffect } from 'react';
 import {
   Network, Settings, ToggleLeft, Power, RefreshCcw, Save, Activity
@@ -6,11 +6,12 @@ import {
 import { InputField, SelectField, CheckboxField } from '../components/FormComponents';
 import ActionButton from '../components/ActionButton';
 import ConfigSection from '../components/ConfigSection';
+import { useControllerManagement, useDeviceSnapshots } from '../hooks/useNetworkManagement';
 
 export const ControllerConfigTab = ({ 
   config, 
   updateConfig, 
-  loading, 
+  loading: parentLoading, 
   setLoading, 
   showMessage, 
   apiCall, 
@@ -24,18 +25,7 @@ export const ControllerConfigTab = ({
     logs: false
   });
 
-  const [currentStatus, setCurrentStatus] = useState({
-    running: false,
-    controller_type: 'Unknown',
-    port: 6633,
-    ip: '127.0.0.1',
-    python_executable: 'python3',
-    connections: 0,
-    memory_usage: 0,
-    log_level: 'INFO'
-  });
-
-  const [realTimeConfig, setRealTimeConfig] = useState({
+  const [localConfig, setLocalConfig] = useState({
     type: 'simple_switch_13',
     port: 6633,
     ip: '127.0.0.1',
@@ -47,67 +37,54 @@ export const ControllerConfigTab = ({
   const [availableApps, setAvailableApps] = useState([]);
   const [controllerLogs, setControllerLogs] = useState([]);
 
+  // Use the controller management hook
+  const { 
+    status: controllerStatus, 
+    loading: controllerLoading, 
+    fetchStatus, 
+    startController, 
+    stopController, 
+    restartController 
+  } = useControllerManagement();
+
+  // Use device snapshots to get controller details
+  const { snapshots, refreshSnapshots } = useDeviceSnapshots();
+
+  const loading = parentLoading || controllerLoading;
+
   const toggle = section => setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
 
   // Auto-refresh data every 3 seconds
   useEffect(() => {
-    fetchControllerStatus();
     fetchAvailableApps();
     
     const interval = setInterval(() => {
-      fetchControllerStatus();
-      if (currentStatus.running) {
+      fetchStatus();
+      if (controllerStatus?.running) {
         fetchControllerLogs();
       }
     }, 3000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchStatus, controllerStatus?.running]);
 
-  // Update config when currentStatus changes
+  // Update config when status changes
   useEffect(() => {
-    setRealTimeConfig(prev => ({
-      ...prev,
-      type: currentStatus.controller_type || prev.type,
-      port: currentStatus.port || prev.port,
-      ip: currentStatus.ip || prev.ip,
-      log_level: currentStatus.log_level || prev.log_level,
-      ...config
-    }));
-  }, [currentStatus, config]);
-
-  const fetchControllerStatus = async () => {
-    try {
-      const response = await apiCall('/controller/status');
-      if (response.success) {
-        setCurrentStatus({
-          running: response.data.running || false,
-          controller_type: response.data.controller_type || 'Unknown',
-          port: response.data.port || 6633,
-          ip: response.data.ip || '127.0.0.1',
-          python_executable: response.data.python_executable || 'python3',
-          connections: response.data.connections || 0,
-          memory_usage: response.data.memory_usage || 0,
-          log_level: response.data.log_level || 'INFO'
-        });
-
-        // Update parent config with current values
-        updateConfig({
-          ...config,
-          type: response.data.controller_type || config.type,
-          port: response.data.port || config.port,
-          ip: response.data.ip || config.ip,
-          log_level: response.data.log_level || config.log_level
-        });
-      }
-    } catch (error) {
-      console.error('Failed to fetch controller status:', error);
+    if (controllerStatus) {
+      setLocalConfig(prev => ({
+        ...prev,
+        type: controllerStatus.controller_type || prev.type,
+        port: controllerStatus.port || prev.port,
+        ip: controllerStatus.ip || prev.ip,
+        log_level: controllerStatus.log_level || prev.log_level,
+        ...config
+      }));
     }
-  };
+  }, [controllerStatus, config]);
 
   const fetchAvailableApps = async () => {
     try {
-      const response = await apiCall('/controller/apps');
+      const response = await apiCall('/api/controller/apps');
       if (response.success) {
         setAvailableApps(response.data.apps || []);
       }
@@ -118,7 +95,7 @@ export const ControllerConfigTab = ({
 
   const fetchControllerLogs = async () => {
     try {
-      const response = await apiCall('/controller/logs?lines=20');
+      const response = await apiCall('/api/controller/logs?lines=20');
       if (response.success) {
         if (Array.isArray(response.data)) {
           setControllerLogs(response.data);
@@ -136,15 +113,14 @@ export const ControllerConfigTab = ({
   const applyConfig = async () => {
     setLoading(true);
     try {
-      const response = await apiCall('/controller/config', {
+      const response = await apiCall('/api/controller/config', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(realTimeConfig)
+        body: JSON.stringify(localConfig)
       });
 
       if (response.success) {
-        showMessage('✔️ Controller configuration applied successfully', 'success');
-        await fetchControllerStatus();
+        showMessage('✅ Controller configuration applied successfully', 'success');
+        await fetchStatus();
         onNetworkChange?.();
       } else {
         showMessage(`❌ ${response.error}`, 'error');
@@ -156,84 +132,52 @@ export const ControllerConfigTab = ({
     }
   };
 
-  const startController = async () => {
-    setLoading(true);
+  const handleStartController = async () => {
     try {
-      const response = await apiCall('/controller/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          type: realTimeConfig.type || 'simple_switch_13', 
-          port: realTimeConfig.port || 6633 
-        })
+      await startController({ 
+        type: localConfig.type, 
+        port: localConfig.port 
       });
-
-      if (response.success) {
-        showMessage('✅ Controller started successfully', 'success');
-        await fetchControllerStatus();
-        onNetworkChange?.();
-      } else {
-        showMessage(`❌ ${response.error}`, 'error');
-      }
+      showMessage('✅ Controller started successfully', 'success');
+      onNetworkChange?.();
     } catch (err) {
-      showMessage(`❌ ${err.message}`, 'error');
-    } finally {
-      setLoading(false);
+      showMessage(`❌ Failed to start controller: ${err.message}`, 'error');
     }
   };
 
-  const stopController = async () => {
-    setLoading(true);
+  const handleStopController = async () => {
     try {
-      const response = await apiCall('/controller/stop', { method: 'POST' });
-      
-      if (response.success) {
-        showMessage('🛑 Controller stopped successfully', 'success');
-        await fetchControllerStatus();
-        setControllerLogs([]); // Clear logs when stopped
-        onNetworkChange?.();
-      } else {
-        showMessage(`❌ ${response.error}`, 'error');
-      }
+      await stopController();
+      showMessage('🛑 Controller stopped successfully', 'success');
+      setControllerLogs([]);
+      onNetworkChange?.();
     } catch (err) {
-      showMessage(`❌ ${err.message}`, 'error');
-    } finally {
-      setLoading(false);
+      showMessage(`❌ Failed to stop controller: ${err.message}`, 'error');
     }
   };
 
-  const restartController = async () => {
-    setLoading(true);
+  const handleRestartController = async () => {
     try {
-      const response = await apiCall('/controller/restart', { method: 'POST' });
-      
-      if (response.success) {
-        showMessage('🔁 Controller restarted successfully', 'success');
-        await fetchControllerStatus();
-        onNetworkChange?.();
-      } else {
-        showMessage(`❌ ${response.error}`, 'error');
-      }
+      await restartController();
+      showMessage('🔁 Controller restarted successfully', 'success');
+      onNetworkChange?.();
     } catch (err) {
-      showMessage(`❌ ${err.message}`, 'error');
-    } finally {
-      setLoading(false);
+      showMessage(`❌ Failed to restart controller: ${err.message}`, 'error');
     }
   };
 
   const switchControllerApp = async (newApp) => {
     setLoading(true);
     try {
-      const response = await apiCall('/controller/switch/app', {
+      const response = await apiCall('/api/controller/switch/app', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ app: newApp })
       });
 
       if (response.success) {
         showMessage(`🔀 Switched to ${newApp} successfully`, 'success');
         handleConfigChange('type', newApp);
-        await fetchControllerStatus();
+        await fetchStatus();
         onNetworkChange?.();
       } else {
         showMessage(`❌ ${response.error}`, 'error');
@@ -247,7 +191,7 @@ export const ControllerConfigTab = ({
 
   const clearControllerLogs = async () => {
     try {
-      const response = await apiCall('/controller/logs/clear', { method: 'POST' });
+      const response = await apiCall('/api/controller/logs/clear', { method: 'POST' });
       if (response.success) {
         showMessage('🧹 Controller logs cleared', 'info');
         setControllerLogs([]);
@@ -258,14 +202,14 @@ export const ControllerConfigTab = ({
   };
 
   const handleConfigChange = (field, value) => {
-    const newConfig = { ...realTimeConfig, [field]: value };
-    setRealTimeConfig(newConfig);
+    const newConfig = { ...localConfig, [field]: value };
+    setLocalConfig(newConfig);
     updateConfig(newConfig);
   };
 
-  // Get status color and text
+  // Get status display
   const getStatusDisplay = () => {
-    if (currentStatus.running) {
+    if (controllerStatus?.running) {
       return {
         color: 'text-green-600',
         text: 'Running',
@@ -281,6 +225,10 @@ export const ControllerConfigTab = ({
   };
 
   const statusDisplay = getStatusDisplay();
+
+  // Extract controller snapshot if available
+  const controllerSnapshot = snapshots?.controllers?.[0];
+  const connectedSwitches = controllerSnapshot?.connections || [];
 
   return (
     <div className="p-6 space-y-6">
@@ -303,15 +251,15 @@ export const ControllerConfigTab = ({
         />
       </div>
 
-      {/* Controller Status - Always visible with real-time info */}
+      {/* Controller Status */}
       <div className={`${statusDisplay.bgColor} rounded-lg p-4`}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
-            <div className={`w-3 h-3 rounded-full ${currentStatus.running ? 'bg-green-500' : 'bg-red-500'}`} />
+            <div className={`w-3 h-3 rounded-full ${controllerStatus?.running ? 'bg-green-500' : 'bg-red-500'}`} />
             <h3 className="font-semibold text-gray-900">Controller Status</h3>
           </div>
           <ActionButton
-            onClick={fetchControllerStatus}
+            onClick={fetchStatus}
             loading={loading}
             icon={<RefreshCcw size={14} />}
             label="Refresh"
@@ -330,42 +278,56 @@ export const ControllerConfigTab = ({
           <div>
             <label className="text-sm font-medium text-gray-600">Type</label>
             <p className="font-semibold text-gray-900">
-              {currentStatus.controller_type}
+              {controllerStatus?.controller_type || 'Unknown'}
             </p>
           </div>
           <div>
             <label className="text-sm font-medium text-gray-600">Address</label>
             <p className="font-semibold text-gray-900 font-mono">
-              {currentStatus.ip}:{currentStatus.port}
+              {controllerStatus?.ip || '127.0.0.1'}:{controllerStatus?.port || 6633}
             </p>
           </div>
           <div>
             <label className="text-sm font-medium text-gray-600">Connections</label>
             <p className="font-semibold text-gray-900">
-              {currentStatus.connections}
+              {controllerSnapshot?.summary?.connections || 0} switches
             </p>
           </div>
         </div>
 
-        {currentStatus.running && (
+        {controllerStatus?.running && controllerSnapshot && (
           <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="text-sm font-medium text-gray-600">Memory Usage</label>
               <p className="font-semibold text-gray-900">
-                {currentStatus.memory_usage}%
+                {controllerStatus.memory_usage || 0}%
               </p>
             </div>
             <div>
               <label className="text-sm font-medium text-gray-600">Log Level</label>
               <p className="font-semibold text-gray-900">
-                {currentStatus.log_level}
+                {controllerStatus.log_level || 'INFO'}
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* Connected Switches */}
+        {connectedSwitches.length > 0 && (
+          <div className="mt-4">
+            <label className="text-sm font-medium text-gray-600">Connected Switches</label>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {connectedSwitches.map((conn, i) => (
+                <span key={i} className="px-2 py-1 bg-white rounded text-xs">
+                  {conn.switch_id}
+                </span>
+              ))}
             </div>
           </div>
         )}
       </div>
 
-      {/* Controller Configuration - Pre-filled with current values */}
+      {/* Controller Configuration */}
       <ConfigSection
         title="Controller Configuration"
         icon={Settings}
@@ -375,42 +337,42 @@ export const ControllerConfigTab = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <SelectField
             label="Controller Type"
-            value={realTimeConfig.type}
+            value={localConfig.type}
             onChange={v => handleConfigChange('type', v)}
             options={availableApps.map(app => ({ value: app.id, label: app.name }))}
-            helper={`Current: ${currentStatus.controller_type}`}
+            helper={`Current: ${controllerStatus?.controller_type || 'Unknown'}`}
           />
           <InputField
             label="Listen Port"
             type="number"
-            value={realTimeConfig.port}
+            value={localConfig.port}
             onChange={v => handleConfigChange('port', parseInt(v) || 6633)}
             placeholder="6633"
-            helper={`Current: ${currentStatus.port}`}
+            helper={`Current: ${controllerStatus?.port || 6633}`}
           />
           <InputField
             label="IP Address"
-            value={realTimeConfig.ip}
+            value={localConfig.ip}
             onChange={v => handleConfigChange('ip', v)}
             placeholder="127.0.0.1"
-            helper={`Current: ${currentStatus.ip}`}
+            helper={`Current: ${controllerStatus?.ip || '127.0.0.1'}`}
           />
           <SelectField
             label="Log Level"
-            value={realTimeConfig.log_level}
+            value={localConfig.log_level}
             onChange={v => handleConfigChange('log_level', v)}
             options={['DEBUG', 'INFO', 'WARNING', 'ERROR'].map(l => ({ value: l, label: l }))}
-            helper={`Current: ${currentStatus.log_level}`}
+            helper={`Current: ${controllerStatus?.log_level || 'INFO'}`}
           />
         </div>
-        {realTimeConfig.type && availableApps.length > 0 && (
+        {localConfig.type && availableApps.length > 0 && (
           <p className="text-sm text-slate-500 mt-3">
-            {availableApps.find(app => app.id === realTimeConfig.type)?.description}
+            {availableApps.find(app => app.id === localConfig.type)?.description}
           </p>
         )}
       </ConfigSection>
 
-      {/* Available Applications - Shows current and allows switching */}
+      {/* Available Applications */}
       <ConfigSection
         title="Available Applications"
         icon={Network}
@@ -422,22 +384,22 @@ export const ControllerConfigTab = ({
             <div 
               key={app.id} 
               className={`p-4 border rounded-lg cursor-pointer transition-colors ${
-                currentStatus.controller_type === app.id 
+                controllerStatus?.controller_type === app.id 
                   ? 'border-green-500 bg-green-50' 
-                  : realTimeConfig.type === app.id
+                  : localConfig.type === app.id
                   ? 'border-blue-500 bg-blue-50' 
                   : 'border-gray-200 hover:border-gray-300'
               }`}
               onClick={() => {
                 handleConfigChange('type', app.id);
-                if (currentStatus.running && currentStatus.controller_type !== app.id) {
+                if (controllerStatus?.running && controllerStatus.controller_type !== app.id) {
                   switchControllerApp(app.id);
                 }
               }}
             >
               <div className="flex items-center justify-between mb-2">
                 <h4 className="font-medium text-gray-900">{app.name}</h4>
-                {currentStatus.controller_type === app.id && (
+                {controllerStatus?.controller_type === app.id && (
                   <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
                     Active
                   </span>
@@ -452,7 +414,7 @@ export const ControllerConfigTab = ({
         </div>
       </ConfigSection>
 
-      {/* REST API Configuration - Pre-filled with current values */}
+      {/* REST API Configuration */}
       <ConfigSection
         title="REST API Configuration"
         icon={ToggleLeft}
@@ -461,15 +423,15 @@ export const ControllerConfigTab = ({
       >
         <CheckboxField
           label="Enable REST API"
-          checked={realTimeConfig.rest_api_enabled || false}
+          checked={localConfig.rest_api_enabled || false}
           onChange={v => handleConfigChange('rest_api_enabled', v)}
         />
-        {realTimeConfig.rest_api_enabled && (
+        {localConfig.rest_api_enabled && (
           <div className="mt-4">
             <InputField
               label="REST API Port"
               type="number"
-              value={realTimeConfig.rest_api_port}
+              value={localConfig.rest_api_port}
               onChange={v => handleConfigChange('rest_api_port', parseInt(v) || 8080)}
               placeholder="8080"
             />
@@ -486,34 +448,34 @@ export const ControllerConfigTab = ({
       >
         <div className="flex flex-wrap gap-4 mb-4">
           <ActionButton
-            onClick={startController}
+            onClick={handleStartController}
             loading={loading}
             icon={<Power size={16} />}
             label="Start"
             variant="success"
-            disabled={currentStatus.running}
+            disabled={controllerStatus?.running}
           />
           <ActionButton
-            onClick={stopController}
+            onClick={handleStopController}
             loading={loading}
             icon={<Power size={16} />}
             label="Stop"
             variant="danger"
-            disabled={!currentStatus.running}
+            disabled={!controllerStatus?.running}
           />
           <ActionButton
-            onClick={restartController}
+            onClick={handleRestartController}
             loading={loading}
             icon={<RefreshCcw size={16} />}
             label="Restart"
             variant="secondary"
-            disabled={!currentStatus.running}
+            disabled={!controllerStatus?.running}
           />
         </div>
       </ConfigSection>
 
-      {/* Controller Logs - Real-time logs when running */}
-      {currentStatus.running && (
+      {/* Controller Logs */}
+      {controllerStatus?.running && (
         <ConfigSection
           title="Controller Logs"
           icon={Activity}
@@ -558,24 +520,24 @@ export const ControllerConfigTab = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
           <div>
             <span className="text-gray-700">Controller Type:</span>
-            <span className="ml-2 font-mono">{realTimeConfig.type}</span>
+            <span className="ml-2 font-mono">{localConfig.type}</span>
           </div>
           <div>
             <span className="text-gray-700">Listen Address:</span>
-            <span className="ml-2 font-mono">{realTimeConfig.ip}:{realTimeConfig.port}</span>
+            <span className="ml-2 font-mono">{localConfig.ip}:{localConfig.port}</span>
           </div>
           <div>
             <span className="text-gray-700">Log Level:</span>
-            <span className="ml-2 font-mono">{realTimeConfig.log_level}</span>
+            <span className="ml-2 font-mono">{localConfig.log_level}</span>
           </div>
           <div>
             <span className="text-gray-700">REST API:</span>
             <span className="ml-2 font-mono">
-              {realTimeConfig.rest_api_enabled ? `Enabled (${realTimeConfig.rest_api_port})` : 'Disabled'}
+              {localConfig.rest_api_enabled ? `Enabled (${localConfig.rest_api_port})` : 'Disabled'}
             </span>
           </div>
         </div>
-        {!currentStatus.running && (
+        {!controllerStatus?.running && (
           <div className="mt-2 p-2 bg-yellow-100 rounded text-yellow-800 text-sm">
             ⚠️ Controller is not running. Start it to enable OpenFlow switch management.
           </div>

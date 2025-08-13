@@ -1,4 +1,4 @@
-// SwitchConfigTab.jsx - Auto-updating with current status
+// SwitchConfigTab.jsx - Using bulk configuration and snapshots
 import React, { useState, useEffect } from 'react';
 import {
   Wifi, Settings, Server, Activity, Save, Eye, Network, Shield, Layers
@@ -6,12 +6,13 @@ import {
 import { InputField, SelectField, EmptyState } from '../components/FormComponents';
 import ActionButton from '../components/ActionButton';
 import ConfigSection from '../components/ConfigSection';
+import { useDeviceSnapshot, useApplyConfig } from '../hooks/useNetworkManagement';
 
 export const SwitchConfigTab = ({
   selectedNode,
   config,
   updateConfig,
-  loading = false,
+  loading: parentLoading = false,
   setLoading = () => {},
   showMessage = () => {},
   apiCall = () => {},
@@ -24,16 +25,7 @@ export const SwitchConfigTab = ({
     status: false
   });
 
-  const [currentStatus, setCurrentStatus] = useState({
-    controller: '',
-    protocols: '',
-    failMode: '',
-    dpid: '',
-    connected: false,
-    flowCount: 0
-  });
-
-  const [realTimeConfig, setRealTimeConfig] = useState({
+  const [localConfig, setLocalConfig] = useState({
     openflow_version: '1.3',
     fail_mode: 'secure',
     controller_ip: '127.0.0.1',
@@ -41,259 +33,82 @@ export const SwitchConfigTab = ({
     dpid: ''
   });
 
-  const [flowEntries, setFlowEntries] = useState([]);
-  const [portStats, setPortStats] = useState('');
+  // Use the new hooks
+  const { snapshot, loading: snapshotLoading, refreshSnapshot } = useDeviceSnapshot(selectedNode?.id);
+  const { applyConfig, buildSwitchConfig, loading: applyLoading } = useApplyConfig();
+
+  const loading = parentLoading || snapshotLoading || applyLoading;
 
   const toggleSection = (section) => {
     setSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
-  // Auto-refresh data every 5 seconds when switch is selected
+  // Auto-refresh snapshot every 5 seconds
   useEffect(() => {
     if (selectedNode && selectedNode.type === 'switch') {
-      fetchSwitchStatus();
-      fetchFlowEntries();
-      
       const interval = setInterval(() => {
-        fetchSwitchStatus();
-        fetchFlowEntries();
+        refreshSnapshot();
       }, 5000);
       
       return () => clearInterval(interval);
     }
-  }, [selectedNode]);
+  }, [selectedNode, refreshSnapshot]);
 
-  // Update config when selectedNode or config changes
+  // Update local config from snapshot
   useEffect(() => {
-    if (selectedNode && selectedNode.type === 'switch') {
-      setRealTimeConfig(prev => ({
+    if (snapshot && snapshot.type === 'switch') {
+      // Parse controller from snapshot
+      let controllerIP = '127.0.0.1';
+      let controllerPort = 6633;
+      
+      if (snapshot.summary?.controller) {
+        const match = snapshot.summary.controller.match(/tcp:([^:]+):(\d+)/);
+        if (match) {
+          controllerIP = match[1];
+          controllerPort = parseInt(match[2]);
+        }
+      }
+
+      setLocalConfig(prev => ({
         ...prev,
+        openflow_version: snapshot.openflow?.version || '1.3',
+        fail_mode: snapshot.summary?.fail_mode || 'secure',
+        controller_ip: controllerIP,
+        controller_port: controllerPort,
+        dpid: snapshot.openflow?.dpid || '',
         ...config
       }));
     }
-  }, [selectedNode, config]);
+  }, [snapshot, config]);
 
-  const executeCommand = async (command) => {
-    if (!selectedNode) return { success: false, error: 'No switch selected' };
-
-    try {
-      const response = await apiCall(`/network/hosts/${selectedNode.id}/cmd`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command })
-      });
-
-      if (response.success) {
-        return response.data;
-      } else {
-        return { success: false, error: response.error };
-      }
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  };
-
-  const fetchSwitchStatus = async () => {
-    if (!selectedNode) return;
-
-    try {
-      // Get switch controller configuration
-      const controllerResult = await executeCommand(`ovs-vsctl get-controller ${selectedNode.id}`);
-      let controllerInfo = 'Not configured';
-      if (controllerResult.success && controllerResult.result.trim()) {
-        controllerInfo = controllerResult.result.trim();
-      }
-
-      // Get OpenFlow protocols
-      const protocolResult = await executeCommand(`ovs-vsctl get bridge ${selectedNode.id} protocols`);
-      let protocols = 'Unknown';
-      if (protocolResult.success && protocolResult.result.trim()) {
-        protocols = protocolResult.result.trim().replace(/"/g, '');
-      }
-
-      // Get fail mode
-      const failModeResult = await executeCommand(`ovs-vsctl get-fail-mode ${selectedNode.id}`);
-      let failMode = 'Unknown';
-      if (failModeResult.success && failModeResult.result.trim()) {
-        failMode = failModeResult.result.trim();
-      }
-
-      // Get DPID
-      const dpidResult = await executeCommand(`ovs-vsctl get bridge ${selectedNode.id} datapath_id`);
-      let dpid = '';
-      if (dpidResult.success && dpidResult.result.trim()) {
-        dpid = dpidResult.result.trim().replace(/"/g, '');
-      }
-
-      // Check connection status with ovs-vsctl show
-      const showResult = await executeCommand(`ovs-vsctl show`);
-      let connected = false;
-      if (showResult.success) {
-        connected = showResult.result.includes('is_connected: true');
-      }
-
-      // Get port statistics
-      const portResult = await executeCommand(`ovs-ofctl dump-ports ${selectedNode.id} -O OpenFlow13`);
-      if (portResult.success) {
-        setPortStats(portResult.result);
-      }
-
-      // Parse controller info to update config
-      if (controllerInfo.includes('tcp:')) {
-        const match = controllerInfo.match(/tcp:([^:]+):(\d+)/);
-        if (match) {
-          setRealTimeConfig(prev => ({
-            ...prev,
-            controller_ip: match[1],
-            controller_port: parseInt(match[2])
-          }));
-        }
-      }
-
-      // Parse protocols to update config
-      if (protocols.includes('OpenFlow')) {
-        const versionMatch = protocols.match(/OpenFlow(\d+)/);
-        if (versionMatch) {
-          const version = versionMatch[1];
-          const formattedVersion = version.length === 2 ? `${version[0]}.${version[1]}` : version;
-          setRealTimeConfig(prev => ({
-            ...prev,
-            openflow_version: formattedVersion
-          }));
-        }
-      }
-
-      // Update fail mode
-      if (failMode !== 'Unknown') {
-        setRealTimeConfig(prev => ({
-          ...prev,
-          fail_mode: failMode
-        }));
-      }
-
-      // Update DPID
-      if (dpid) {
-        setRealTimeConfig(prev => ({
-          ...prev,
-          dpid: dpid
-        }));
-      }
-
-      setCurrentStatus({
-        controller: controllerInfo,
-        protocols: protocols,
-        failMode: failMode,
-        dpid: dpid,
-        connected: connected,
-        flowCount: flowEntries.length
-      });
-
-      // Update parent config
-      updateConfig({
-        ...config,
-        controller_ip: realTimeConfig.controller_ip,
-        controller_port: realTimeConfig.controller_port,
-        openflow_version: realTimeConfig.openflow_version,
-        fail_mode: realTimeConfig.fail_mode,
-        dpid: realTimeConfig.dpid
-      });
-
-    } catch (error) {
-      console.error('Error fetching switch status:', error);
-    }
-  };
-
-  const fetchFlowEntries = async () => {
-    if (!selectedNode) return;
-
-    try {
-      // Try to get flow stats from the stats API first
-      const response = await apiCall(`/stats/flows/${selectedNode.id}`);
-      if (response.success && response.data.flows) {
-        setFlowEntries(response.data.flows.detailed_flows || []);
-        setCurrentStatus(prev => ({
-          ...prev,
-          flowCount: response.data.flows.detailed_flows?.length || 0
-        }));
-      } else {
-        // Fallback to direct command execution
-        const result = await executeCommand(`ovs-ofctl dump-flows ${selectedNode.id} -O OpenFlow13`);
-        if (result.success) {
-          const flows = result.result.split('\n').filter(line => 
-            line.trim() && !line.startsWith('NXST_FLOW') && line.includes('cookie=')
-          );
-          setFlowEntries(flows);
-          setCurrentStatus(prev => ({
-            ...prev,
-            flowCount: flows.length
-          }));
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching flow entries:', error);
-    }
-  };
-
-  const applyConfig = async () => {
+  const applyConfiguration = async () => {
     if (!selectedNode) return;
     setLoading(true);
     
     try {
-      const commands = [];
-      let configChanged = false;
-
-      // Set OpenFlow version if changed
-      if (realTimeConfig.openflow_version && realTimeConfig.openflow_version !== currentStatus.protocols) {
-        const version = realTimeConfig.openflow_version.replace('.', '');
-        commands.push(`ovs-vsctl set bridge ${selectedNode.id} protocols=OpenFlow${version}`);
-        configChanged = true;
-      }
-
-      // Set fail mode if changed
-      if (realTimeConfig.fail_mode && realTimeConfig.fail_mode !== currentStatus.failMode) {
-        commands.push(`ovs-vsctl set-fail-mode ${selectedNode.id} ${realTimeConfig.fail_mode}`);
-        configChanged = true;
-      }
-
-      // Set controller if changed
-      const newControllerString = `tcp:${realTimeConfig.controller_ip}:${realTimeConfig.controller_port}`;
-      if (!currentStatus.controller.includes(newControllerString)) {
-        commands.push(`ovs-vsctl set-controller ${selectedNode.id} ${newControllerString}`);
-        configChanged = true;
-      }
-
-      // Set DPID if specified and different
-      if (realTimeConfig.dpid && realTimeConfig.dpid !== 'auto' && realTimeConfig.dpid !== currentStatus.dpid) {
-        commands.push(`ovs-vsctl set bridge ${selectedNode.id} other-config:datapath-id=${realTimeConfig.dpid}`);
-        configChanged = true;
-      }
-
-      if (!configChanged) {
-        showMessage('No configuration changes to apply', 'info');
-        setLoading(false);
-        return;
-      }
-
-      // Execute all commands
-      let successCount = 0;
-      for (const command of commands) {
-        const result = await executeCommand(command);
-        if (result.success) {
-          successCount++;
+      // Build configuration spec
+      const spec = buildSwitchConfig(selectedNode.id, localConfig);
+      
+      // Apply configuration
+      const result = await applyConfig(spec);
+      
+      if (result.success) {
+        const successCount = result.applied || 0;
+        const failCount = result.failed || 0;
+        
+        if (failCount === 0) {
+          showMessage('✅ Switch configuration applied successfully', 'success');
         } else {
-          showMessage(`Command failed: ${command}`, 'error');
+          showMessage(`⚠️ Applied ${successCount} commands, ${failCount} failed`, 'warning');
         }
-      }
-
-      if (successCount === commands.length) {
-        showMessage('✅ Switch configuration applied successfully', 'success');
-        // Refresh status after configuration
+        
+        // Refresh snapshot after configuration
         setTimeout(() => {
-          fetchSwitchStatus();
+          refreshSnapshot();
           onNetworkChange?.();
         }, 2000);
       } else {
-        showMessage(`Applied ${successCount}/${commands.length} configuration commands`, 'warning');
+        showMessage('❌ Failed to apply configuration', 'error');
       }
     } catch (error) {
       showMessage(`❌ ${error.message}`, 'error');
@@ -307,15 +122,23 @@ export const SwitchConfigTab = ({
     
     setLoading(true);
     try {
-      const result = await executeCommand(`ovs-ofctl del-flows ${selectedNode.id}`);
+      // Use apply-config to execute ovs-ofctl del-flows command
+      const spec = {
+        switches: {}
+      };
+      spec.switches[selectedNode.id] = {
+        commands: [`ovs-ofctl del-flows ${selectedNode.id}`]
+      };
+      
+      const result = await applyConfig(spec);
       if (result.success) {
-        showMessage('Flow table cleared successfully', 'success');
-        await fetchFlowEntries();
+        showMessage('✅ Flow table cleared successfully', 'success');
+        await refreshSnapshot();
       } else {
-        showMessage('Failed to clear flows', 'error');
+        showMessage('❌ Failed to clear flows', 'error');
       }
     } catch (error) {
-      showMessage(`Error clearing flows: ${error.message}`, 'error');
+      showMessage(`❌ Error clearing flows: ${error.message}`, 'error');
     } finally {
       setLoading(false);
     }
@@ -327,24 +150,30 @@ export const SwitchConfigTab = ({
     setLoading(true);
     try {
       // Add a simple test flow that forwards all traffic normally
-      const command = `ovs-ofctl add-flow ${selectedNode.id} "priority=100,actions=NORMAL" -O OpenFlow13`;
-      const result = await executeCommand(command);
+      const spec = {
+        switches: {}
+      };
+      spec.switches[selectedNode.id] = {
+        commands: [`ovs-ofctl add-flow ${selectedNode.id} "priority=100,actions=NORMAL" -O OpenFlow13`]
+      };
+      
+      const result = await applyConfig(spec);
       if (result.success) {
-        showMessage('Test flow added successfully', 'success');
-        await fetchFlowEntries();
+        showMessage('✅ Test flow added successfully', 'success');
+        await refreshSnapshot();
       } else {
-        showMessage('Failed to add test flow', 'error');
+        showMessage('❌ Failed to add test flow', 'error');
       }
     } catch (error) {
-      showMessage(`Error adding test flow: ${error.message}`, 'error');
+      showMessage(`❌ Error adding test flow: ${error.message}`, 'error');
     } finally {
       setLoading(false);
     }
   };
 
   const handleConfigChange = (field, value) => {
-    const newConfig = { ...realTimeConfig, [field]: value };
-    setRealTimeConfig(newConfig);
+    const newConfig = { ...localConfig, [field]: value };
+    setLocalConfig(newConfig);
     updateConfig(newConfig);
   };
 
@@ -358,6 +187,18 @@ export const SwitchConfigTab = ({
       </div>
     );
   }
+
+  // Extract current status from snapshot
+  const currentStatus = {
+    controller: snapshot?.summary?.controller || 'Not configured',
+    fail_mode: snapshot?.summary?.fail_mode || 'Unknown',
+    dpid: snapshot?.openflow?.dpid || 'Auto-generated',
+    openflow_version: snapshot?.openflow?.version || 'Unknown',
+    connected: snapshot?.connections?.status === 'connected',
+    flowCount: snapshot?.flows?.count || 0,
+    flows: snapshot?.flows?.entries || [],
+    portStats: snapshot?.port_statistics || {}
+  };
 
   return (
     <div className="p-8 space-y-8">
@@ -373,14 +214,14 @@ export const SwitchConfigTab = ({
           </div>
         </div>
         <ActionButton
-          onClick={applyConfig}
+          onClick={applyConfiguration}
           loading={loading}
           icon={<Save size={16} />}
           label="Apply Configuration"
         />
       </div>
 
-      {/* Switch Status - Always visible with current info */}
+      {/* Switch Status - From Snapshot */}
       <ConfigSection
         title="Current Switch Status"
         icon={Activity}
@@ -391,19 +232,19 @@ export const SwitchConfigTab = ({
           <div>
             <label className="text-sm font-medium text-gray-600">Controller</label>
             <p className="font-mono text-sm text-gray-900 break-all">
-              {currentStatus.controller || 'Not configured'}
+              {currentStatus.controller}
             </p>
           </div>
           <div>
             <label className="text-sm font-medium text-gray-600">OpenFlow Version</label>
             <p className="font-mono text-sm text-gray-900">
-              {currentStatus.protocols || 'Unknown'}
+              {currentStatus.openflow_version}
             </p>
           </div>
           <div>
             <label className="text-sm font-medium text-gray-600">Fail Mode</label>
             <p className="font-mono text-sm text-gray-900">
-              {currentStatus.failMode || 'Unknown'}
+              {currentStatus.fail_mode}
             </p>
           </div>
           <div>
@@ -418,7 +259,7 @@ export const SwitchConfigTab = ({
           <div>
             <label className="text-sm font-medium text-gray-600">DPID</label>
             <p className="font-mono text-sm text-gray-900">
-              {currentStatus.dpid || 'Auto-generated'}
+              {currentStatus.dpid}
             </p>
           </div>
           <div>
@@ -431,25 +272,17 @@ export const SwitchConfigTab = ({
 
         <div className="flex gap-2 mt-4">
           <ActionButton
-            onClick={fetchSwitchStatus}
+            onClick={refreshSnapshot}
             loading={loading}
             icon={<Activity size={16} />}
             label="Refresh Status"
             variant="secondary"
             size="sm"
           />
-          <ActionButton
-            onClick={fetchFlowEntries}
-            loading={loading}
-            icon={<Eye size={16} />}
-            label="Refresh Flows"
-            variant="secondary"
-            size="sm"
-          />
         </div>
       </ConfigSection>
 
-      {/* OpenFlow Settings - Pre-filled with current values */}
+      {/* OpenFlow Settings */}
       <ConfigSection
         title="OpenFlow Configuration"
         icon={Settings}
@@ -459,7 +292,7 @@ export const SwitchConfigTab = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <SelectField
             label="OpenFlow Version"
-            value={realTimeConfig.openflow_version}
+            value={localConfig.openflow_version}
             onChange={val => handleConfigChange('openflow_version', val)}
             options={[
               { value: '1.0', label: 'OpenFlow 1.0' },
@@ -469,30 +302,30 @@ export const SwitchConfigTab = ({
               { value: '1.4', label: 'OpenFlow 1.4' }
             ]}
             icon={Layers}
-            helper={`Current: ${currentStatus.protocols || 'Unknown'}`}
+            helper={`Current: ${currentStatus.openflow_version}`}
           />
           <SelectField
             label="Fail Mode"
-            value={realTimeConfig.fail_mode}
+            value={localConfig.fail_mode}
             onChange={val => handleConfigChange('fail_mode', val)}
             options={[
               { value: 'secure', label: 'Secure (Drop packets)' },
               { value: 'standalone', label: 'Standalone (Forward packets)' }
             ]}
             icon={Shield}
-            helper={`Current: ${currentStatus.failMode || 'Unknown'} - Behavior when controller connection is lost`}
+            helper={`Current: ${currentStatus.fail_mode} - Behavior when controller connection is lost`}
           />
           <InputField
             label="DPID (Datapath ID)"
-            value={realTimeConfig.dpid}
+            value={localConfig.dpid}
             onChange={val => handleConfigChange('dpid', val)}
             placeholder={currentStatus.dpid || "0000000000000001"}
-            helper={`Current: ${currentStatus.dpid || 'Auto-generated'} - 16-digit hex identifier (optional)`}
+            helper={`Current: ${currentStatus.dpid} - 16-digit hex identifier (optional)`}
           />
         </div>
       </ConfigSection>
 
-      {/* Controller Settings - Pre-filled with current values */}
+      {/* Controller Settings */}
       <ConfigSection
         title="Controller Connection"
         icon={Network}
@@ -501,13 +334,13 @@ export const SwitchConfigTab = ({
       >
         <div className="mb-4">
           <p className="text-sm text-gray-600">
-            Current controller: {currentStatus.controller || 'None configured'}
+            Current controller: {currentStatus.controller}
           </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <InputField
             label="Controller IP"
-            value={realTimeConfig.controller_ip}
+            value={localConfig.controller_ip}
             onChange={val => handleConfigChange('controller_ip', val)}
             placeholder="127.0.0.1"
             icon={Network}
@@ -516,7 +349,7 @@ export const SwitchConfigTab = ({
           <InputField
             label="Controller Port"
             type="number"
-            value={realTimeConfig.controller_port}
+            value={localConfig.controller_port}
             onChange={val => handleConfigChange('controller_port', parseInt(val) || 6633)}
             placeholder="6633"
             icon={Server}
@@ -525,7 +358,7 @@ export const SwitchConfigTab = ({
         </div>
       </ConfigSection>
 
-      {/* Flow Table Management - Shows current flows */}
+      {/* Flow Table Management */}
       <ConfigSection
         title="Flow Table Management"
         icon={Activity}
@@ -544,7 +377,7 @@ export const SwitchConfigTab = ({
             </div>
             <div className="flex gap-2">
               <ActionButton
-                onClick={fetchFlowEntries}
+                onClick={refreshSnapshot}
                 loading={loading}
                 icon={<Eye size={16} />}
                 label="Refresh Flows"
@@ -570,13 +403,24 @@ export const SwitchConfigTab = ({
             </div>
           </div>
 
-          {flowEntries.length > 0 ? (
+          {currentStatus.flows.length > 0 ? (
             <div>
               <label className="text-sm font-medium text-gray-600">Current Flow Entries</label>
               <div className="bg-gray-100 p-3 rounded mt-2 max-h-64 overflow-y-auto">
-                {flowEntries.map((flow, index) => (
-                  <div key={index} className="font-mono text-xs mb-1 p-1 bg-white rounded">
-                    {flow}
+                {currentStatus.flows.map((flow, index) => (
+                  <div key={index} className="font-mono text-xs mb-2 p-2 bg-white rounded">
+                    {typeof flow === 'object' ? (
+                      <div>
+                        <div>Priority: {flow.priority || 'N/A'}</div>
+                        <div>Match: {JSON.stringify(flow.match || {})}</div>
+                        <div>Actions: {JSON.stringify(flow.actions || [])}</div>
+                        {flow.packets !== undefined && (
+                          <div>Packets: {flow.packets}, Bytes: {flow.bytes || 0}</div>
+                        )}
+                      </div>
+                    ) : (
+                      flow
+                    )}
                   </div>
                 ))}
               </div>
@@ -590,12 +434,23 @@ export const SwitchConfigTab = ({
             </div>
           )}
 
-          {portStats && (
+          {/* Port Statistics */}
+          {Object.keys(currentStatus.portStats).length > 0 && (
             <div>
               <label className="text-sm font-medium text-gray-600">Port Statistics</label>
-              <pre className="bg-gray-100 p-3 rounded text-xs mt-2 overflow-x-auto max-h-48">
-                {portStats}
-              </pre>
+              <div className="bg-gray-100 p-3 rounded mt-2">
+                {Object.entries(currentStatus.portStats).map(([port, stats]) => (
+                  <div key={port} className="mb-2 text-xs">
+                    <div className="font-medium">Port {port}</div>
+                    <div className="grid grid-cols-2 gap-2 mt-1">
+                      <div>RX Packets: {stats.rx_packets || 0}</div>
+                      <div>TX Packets: {stats.tx_packets || 0}</div>
+                      <div>RX Bytes: {stats.rx_bytes || 0}</div>
+                      <div>TX Bytes: {stats.tx_bytes || 0}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -607,19 +462,19 @@ export const SwitchConfigTab = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
           <div>
             <span className="text-blue-700">OpenFlow Version:</span>
-            <span className="ml-2 font-mono">{realTimeConfig.openflow_version}</span>
+            <span className="ml-2 font-mono">{localConfig.openflow_version}</span>
           </div>
           <div>
             <span className="text-blue-700">Fail Mode:</span>
-            <span className="ml-2 font-mono">{realTimeConfig.fail_mode}</span>
+            <span className="ml-2 font-mono">{localConfig.fail_mode}</span>
           </div>
           <div>
             <span className="text-blue-700">Controller:</span>
-            <span className="ml-2 font-mono">{realTimeConfig.controller_ip}:{realTimeConfig.controller_port}</span>
+            <span className="ml-2 font-mono">{localConfig.controller_ip}:{localConfig.controller_port}</span>
           </div>
           <div>
             <span className="text-blue-700">DPID:</span>
-            <span className="ml-2 font-mono">{realTimeConfig.dpid || 'Auto-generated'}</span>
+            <span className="ml-2 font-mono">{localConfig.dpid || 'Auto-generated'}</span>
           </div>
         </div>
         {!currentStatus.connected && (

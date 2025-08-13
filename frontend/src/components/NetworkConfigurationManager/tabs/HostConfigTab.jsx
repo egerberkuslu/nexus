@@ -1,4 +1,4 @@
-// HostConfigTab.jsx - Auto-updating with current status
+// HostConfigTab.jsx - Using bulk configuration and snapshots
 import React, { useState, useEffect } from 'react';
 import { 
   Monitor, Server, Router, Settings, Wifi, Globe, Network, 
@@ -9,12 +9,13 @@ import {
   ConfigSection, InputField, SelectField, CheckboxField, 
   DynamicList, ActionButton, EmptyState, StatusBadge 
 } from '../components/FormComponents';
+import { useDeviceSnapshot, useApplyConfig, useCommandExecution } from '../hooks/useNetworkManagement';
 
 export const HostConfigTab = ({ 
   selectedNode, 
   config, 
   updateConfig, 
-  loading, 
+  loading: parentLoading, 
   setLoading, 
   showMessage, 
   apiCall, 
@@ -28,18 +29,7 @@ export const HostConfigTab = ({
     status: false
   });
 
-  const [currentStatus, setCurrentStatus] = useState({
-    ip: '',
-    mac: '',
-    gateway: '',
-    interfaces: {},
-    arp_table: '',
-    routing_table: '',
-    dns_servers: [],
-    hostname: ''
-  });
-
-  const [realTimeConfig, setRealTimeConfig] = useState({
+  const [localConfig, setLocalConfig] = useState({
     ip: '',
     netmask: '255.255.255.0',
     gateway: '',
@@ -49,232 +39,77 @@ export const HostConfigTab = ({
     routes: []
   });
 
+  // Use the new hooks
+  const { snapshot, loading: snapshotLoading, refreshSnapshot } = useDeviceSnapshot(selectedNode?.id);
+  const { applyConfig, buildHostConfig, loading: applyLoading } = useApplyConfig();
+  const { executeCommand, loading: cmdLoading } = useCommandExecution();
+
+  const loading = parentLoading || snapshotLoading || applyLoading || cmdLoading;
+
   const toggleSection = (section) => {
     setSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
-  // Auto-refresh data every 5 seconds when node is selected
+  // Auto-refresh snapshot every 5 seconds
   useEffect(() => {
     if (selectedNode && selectedNode.type === 'host') {
-      fetchHostStatus();
-      
       const interval = setInterval(() => {
-        fetchHostStatus();
+        refreshSnapshot();
       }, 5000);
       
       return () => clearInterval(interval);
     }
-  }, [selectedNode]);
+  }, [selectedNode, refreshSnapshot]);
 
-  // Update config when selectedNode changes
+  // Update local config from snapshot
   useEffect(() => {
-    if (selectedNode && selectedNode.type === 'host') {
-      setRealTimeConfig(prev => ({
+    if (snapshot && snapshot.type === 'host') {
+      const currentIP = snapshot.summary?.current_ip?.split('/')[0] || '';
+      const currentGateway = snapshot.summary?.gateway || '';
+      const currentDNS = snapshot.summary?.dns || ['8.8.8.8', '8.8.4.4'];
+      
+      setLocalConfig(prev => ({
         ...prev,
-        ip: selectedNode.ip || '',
-        hostname: selectedNode.id || '',
+        ip: currentIP,
+        gateway: currentGateway,
+        dns: currentDNS,
+        hostname: snapshot.id || '',
         ...config
       }));
     }
-  }, [selectedNode, config]);
-
-  const executeCommand = async (command) => {
-    if (!selectedNode) return { success: false, error: 'No host selected' };
-
-    try {
-      const response = await apiCall(`/network/hosts/${selectedNode.id}/cmd`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command })
-      });
-
-      if (response.success) {
-        return response.data;
-      } else {
-        return { success: false, error: response.error };
-      }
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  };
-
-  const fetchHostStatus = async () => {
-    if (!selectedNode) return;
-    
-    try {
-      // Get current IP configuration
-      const ifconfigResult = await executeCommand('ifconfig');
-      let currentIP = selectedNode.ip || '';
-      let currentMAC = selectedNode.mac || '';
-      
-      if (ifconfigResult.success) {
-        // Parse ifconfig output to get current IP and MAC
-        const ifconfigOutput = ifconfigResult.result;
-        const ipMatch = ifconfigOutput.match(/inet (\d+\.\d+\.\d+\.\d+)/);
-        const macMatch = ifconfigOutput.match(/ether ([a-f0-9:]{17})/i);
-        
-        if (ipMatch) currentIP = ipMatch[1];
-        if (macMatch) currentMAC = macMatch[1];
-      }
-
-      // Get current hostname
-      const hostnameResult = await executeCommand('hostname');
-      let currentHostname = selectedNode.id || '';
-      if (hostnameResult.success) {
-        currentHostname = hostnameResult.result.trim();
-      }
-
-      // Get current gateway
-      const routeResult = await executeCommand('ip route show default');
-      let currentGateway = '';
-      if (routeResult.success) {
-        const gatewayMatch = routeResult.result.match(/default via (\d+\.\d+\.\d+\.\d+)/);
-        if (gatewayMatch) currentGateway = gatewayMatch[1];
-      }
-
-      // Get DNS servers
-      const dnsResult = await executeCommand('cat /etc/resolv.conf');
-      let currentDNS = ['8.8.8.8', '8.8.4.4'];
-      if (dnsResult.success) {
-        const dnsLines = dnsResult.result.split('\n');
-        const dnsServers = dnsLines
-          .filter(line => line.startsWith('nameserver'))
-          .map(line => line.split(' ')[1])
-          .filter(ip => ip);
-        if (dnsServers.length > 0) currentDNS = dnsServers;
-      }
-
-      // Get ARP table
-      const arpResult = await executeCommand('arp -a');
-      const arpTable = arpResult.success ? arpResult.result : '';
-
-      // Get routing table
-      const routingResult = await executeCommand('ip route show');
-      const routingTable = routingResult.success ? routingResult.result : '';
-
-      // Check running services
-      const servicesResult = await executeCommand('netstat -tuln');
-      let runningServices = [];
-      if (servicesResult.success) {
-        const output = servicesResult.result;
-        if (output.includes(':22 ')) runningServices.push('ssh');
-        if (output.includes(':80 ')) runningServices.push('http');
-        if (output.includes(':443 ')) runningServices.push('https');
-        if (output.includes(':21 ')) runningServices.push('ftp');
-        if (output.includes(':23 ')) runningServices.push('telnet');
-        if (output.includes(':161 ')) runningServices.push('snmp');
-        if (output.includes(':123 ')) runningServices.push('ntp');
-        if (output.includes(':67 ')) runningServices.push('dhcp');
-        if (output.includes(':53 ')) runningServices.push('dns');
-      }
-
-      // Update current status
-      setCurrentStatus({
-        ip: currentIP,
-        mac: currentMAC,
-        gateway: currentGateway,
-        hostname: currentHostname,
-        arp_table: arpTable,
-        routing_table: routingTable,
-        dns_servers: currentDNS,
-        running_services: runningServices
-      });
-
-      // Update config with current values
-      setRealTimeConfig(prev => ({
-        ...prev,
-        ip: currentIP,
-        gateway: currentGateway,
-        hostname: currentHostname,
-        dns: currentDNS,
-        services: runningServices
-      }));
-
-      // Update parent config
-      updateConfig({
-        ...config,
-        ip: currentIP,
-        gateway: currentGateway,
-        hostname: currentHostname,
-        dns: currentDNS,
-        services: runningServices
-      });
-
-    } catch (error) {
-      console.error('Error fetching host status:', error);
-    }
-  };
+  }, [snapshot, config]);
 
   const applyConfiguration = async () => {
     if (!selectedNode) return;
     setLoading(true);
     
     try {
-      const commands = [];
-
-      // Configure IP address if changed
-      if (realTimeConfig.ip && realTimeConfig.ip !== currentStatus.ip) {
-        const netmask = realTimeConfig.netmask || '255.255.255.0';
-        commands.push(`ifconfig ${selectedNode.id}-eth0 ${realTimeConfig.ip} netmask ${netmask}`);
-      }
-
-      // Configure hostname if changed
-      if (realTimeConfig.hostname && realTimeConfig.hostname !== currentStatus.hostname) {
-        commands.push(`hostname ${realTimeConfig.hostname}`);
-        commands.push(`echo '127.0.0.1 ${realTimeConfig.hostname}' >> /etc/hosts`);
-      }
-
-      // Configure default gateway if changed
-      if (realTimeConfig.gateway && realTimeConfig.gateway !== currentStatus.gateway) {
-        // Remove old default gateway first
-        commands.push('route del default 2>/dev/null || true');
-        commands.push(`route add default gw ${realTimeConfig.gateway}`);
-      }
-
-      // Configure DNS servers if changed
-      if (realTimeConfig.dns && JSON.stringify(realTimeConfig.dns) !== JSON.stringify(currentStatus.dns_servers)) {
-        commands.push('echo "# Auto-configured DNS servers" > /etc/resolv.conf');
-        realTimeConfig.dns.forEach(dnsServer => {
-          if (dnsServer.trim()) {
-            commands.push(`echo "nameserver ${dnsServer}" >> /etc/resolv.conf`);
-          }
-        });
-      }
-
-      // Configure static routes
-      if (realTimeConfig.routes && Array.isArray(realTimeConfig.routes)) {
-        realTimeConfig.routes.forEach(route => {
-          if (route.network && route.gateway) {
-            commands.push(`ip route add ${route.network} via ${route.gateway} 2>/dev/null || true`);
-          }
-        });
-      }
-
-      // Execute all commands
-      let successCount = 0;
-      for (const command of commands) {
-        const result = await executeCommand(command);
-        if (result.success) {
-          successCount++;
+      // Build configuration spec
+      const spec = buildHostConfig(selectedNode.id, localConfig);
+      
+      // Apply configuration
+      const result = await applyConfig(spec);
+      
+      if (result.success) {
+        const successCount = result.applied || 0;
+        const failCount = result.failed || 0;
+        
+        if (failCount === 0) {
+          showMessage('✅ Host configuration applied successfully', 'success');
         } else {
-          showMessage(`Command failed: ${command}`, 'error');
+          showMessage(`⚠️ Applied ${successCount} commands, ${failCount} failed`, 'warning');
         }
-      }
-
-      if (commands.length === 0) {
-        showMessage('No configuration changes to apply', 'info');
-      } else if (successCount === commands.length) {
-        showMessage('Host configuration applied successfully', 'success');
-        // Refresh status after configuration
+        
+        // Refresh snapshot after configuration
         setTimeout(() => {
-          fetchHostStatus();
+          refreshSnapshot();
           onNetworkChange?.();
         }, 2000);
       } else {
-        showMessage(`Applied ${successCount}/${commands.length} configuration commands`, 'warning');
+        showMessage('❌ Failed to apply configuration', 'error');
       }
     } catch (error) {
-      showMessage(`Failed to apply configuration: ${error.message}`, 'error');
+      showMessage(`❌ Error: ${error.message}`, 'error');
     } finally {
       setLoading(false);
     }
@@ -285,31 +120,31 @@ export const HostConfigTab = ({
     
     setLoading(true);
     try {
-      const result = await executeCommand(`ping -c 4 ${target}`);
+      const result = await executeCommand(selectedNode.id, `ping -c 4 ${target}`);
       if (result.success) {
         const output = result.result;
         if (output.includes('4 packets transmitted, 4 received')) {
-          showMessage(`Ping to ${target}: Success (0% loss)`, 'success');
+          showMessage(`✅ Ping to ${target}: Success (0% loss)`, 'success');
         } else if (output.includes('received')) {
           const lossMatch = output.match(/(\d+)% packet loss/);
           const loss = lossMatch ? lossMatch[1] : 'unknown';
-          showMessage(`Ping to ${target}: Partial success (${loss}% loss)`, 'warning');
+          showMessage(`⚠️ Ping to ${target}: Partial success (${loss}% loss)`, 'warning');
         } else {
-          showMessage(`Ping to ${target}: Failed`, 'error');
+          showMessage(`❌ Ping to ${target}: Failed`, 'error');
         }
       } else {
-        showMessage(`Ping to ${target}: Failed`, 'error');
+        showMessage(`❌ Ping to ${target}: Failed`, 'error');
       }
     } catch (error) {
-      showMessage(`Ping test failed: ${error.message}`, 'error');
+      showMessage(`❌ Ping test failed: ${error.message}`, 'error');
     } finally {
       setLoading(false);
     }
   };
 
   const handleConfigChange = (field, value) => {
-    const newConfig = { ...realTimeConfig, [field]: value };
-    setRealTimeConfig(newConfig);
+    const newConfig = { ...localConfig, [field]: value };
+    setLocalConfig(newConfig);
     updateConfig(newConfig);
   };
 
@@ -322,6 +157,18 @@ export const HostConfigTab = ({
       />
     );
   }
+
+  // Extract current status from snapshot
+  const currentStatus = {
+    ip: snapshot?.summary?.current_ip || 'Not configured',
+    mac: snapshot?.summary?.mac || 'Unknown',
+    gateway: snapshot?.summary?.gateway || 'None',
+    dns: snapshot?.summary?.dns || [],
+    services: snapshot?.services || [],
+    openPorts: snapshot?.open_ports || [],
+    routes: snapshot?.routes || [],
+    interfaces: snapshot?.interfaces || []
+  };
 
   const services = ['SSH', 'HTTP', 'HTTPS', 'FTP', 'Telnet', 'SNMP', 'NTP', 'DHCP', 'DNS'];
 
@@ -342,7 +189,7 @@ export const HostConfigTab = ({
         />
       </div>
 
-      {/* Host Status - Always visible with current info */}
+      {/* Host Status - From Snapshot */}
       <ConfigSection
         title="Current Host Status"
         icon={Activity}
@@ -352,35 +199,50 @@ export const HostConfigTab = ({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
           <div>
             <label className="text-sm font-medium text-gray-600">Current IP</label>
-            <p className="font-semibold text-gray-900">{currentStatus.ip || 'Not configured'}</p>
+            <p className="font-semibold text-gray-900">{currentStatus.ip}</p>
           </div>
           <div>
             <label className="text-sm font-medium text-gray-600">MAC Address</label>
-            <p className="font-semibold text-gray-900">{currentStatus.mac || 'Unknown'}</p>
+            <p className="font-semibold text-gray-900">{currentStatus.mac}</p>
           </div>
           <div>
             <label className="text-sm font-medium text-gray-600">Gateway</label>
-            <p className="font-semibold text-gray-900">{currentStatus.gateway || 'None'}</p>
+            <p className="font-semibold text-gray-900">{currentStatus.gateway}</p>
           </div>
           <div>
             <label className="text-sm font-medium text-gray-600">Hostname</label>
-            <p className="font-semibold text-gray-900">{currentStatus.hostname || selectedNode.id}</p>
+            <p className="font-semibold text-gray-900">{snapshot?.id || selectedNode.id}</p>
           </div>
           <div>
             <label className="text-sm font-medium text-gray-600">DNS Servers</label>
-            <p className="font-semibold text-gray-900">{currentStatus.dns_servers?.join(', ') || 'None'}</p>
+            <p className="font-semibold text-gray-900">{currentStatus.dns.join(', ') || 'None'}</p>
           </div>
           <div>
-            <label className="text-sm font-medium text-gray-600">Running Services</label>
+            <label className="text-sm font-medium text-gray-600">Open Ports</label>
             <p className="font-semibold text-gray-900">
-              {currentStatus.running_services?.length > 0 ? currentStatus.running_services.join(', ') : 'None'}
+              {currentStatus.openPorts.length > 0 ? 
+                currentStatus.openPorts.map(p => p.port).join(', ') : 'None'}
             </p>
           </div>
         </div>
 
+        {/* Current Interfaces */}
+        {currentStatus.interfaces.length > 0 && (
+          <div className="mt-4">
+            <label className="text-sm font-medium text-gray-600">Network Interfaces</label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+              {currentStatus.interfaces.map((intf, i) => (
+                <div key={i} className="bg-gray-50 p-2 rounded text-sm">
+                  <span className="font-medium">{intf.interface}:</span> {intf.address}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex gap-2 mt-4">
           <ActionButton
-            onClick={fetchHostStatus}
+            onClick={refreshSnapshot}
             loading={loading}
             icon={<RefreshCw size={16} />}
             label="Refresh Status"
@@ -395,7 +257,7 @@ export const HostConfigTab = ({
             variant="secondary"
             size="sm"
           />
-          {currentStatus.gateway && (
+          {currentStatus.gateway !== 'None' && (
             <ActionButton
               onClick={() => pingTest(currentStatus.gateway)}
               loading={loading}
@@ -408,7 +270,7 @@ export const HostConfigTab = ({
         </div>
       </ConfigSection>
 
-      {/* Network Interface Section - Pre-filled with current values */}
+      {/* Network Interface Configuration */}
       <ConfigSection
         title="Network Interface Configuration"
         icon={Wifi}
@@ -418,15 +280,15 @@ export const HostConfigTab = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <InputField
             label="IP Address"
-            value={realTimeConfig.ip}
+            value={localConfig.ip}
             onChange={(value) => handleConfigChange('ip', value)}
             placeholder={currentStatus.ip || "192.168.1.100"}
             icon={Globe}
-            helper={`Current: ${currentStatus.ip || 'Not set'}`}
+            helper={`Current: ${currentStatus.ip}`}
           />
           <SelectField
             label="Netmask"
-            value={realTimeConfig.netmask || '255.255.255.0'}
+            value={localConfig.netmask || '255.255.255.0'}
             onChange={(value) => handleConfigChange('netmask', value)}
             options={[
               { value: '255.255.255.0', label: '255.255.255.0 (/24)' },
@@ -437,24 +299,24 @@ export const HostConfigTab = ({
           />
           <InputField
             label="Gateway"
-            value={realTimeConfig.gateway}
+            value={localConfig.gateway}
             onChange={(value) => handleConfigChange('gateway', value)}
             placeholder={currentStatus.gateway || "192.168.1.1"}
             icon={Router}
-            helper={`Current: ${currentStatus.gateway || 'None'}`}
+            helper={`Current: ${currentStatus.gateway}`}
           />
           <InputField
             label="Hostname"
-            value={realTimeConfig.hostname}
+            value={localConfig.hostname}
             onChange={(value) => handleConfigChange('hostname', value)}
-            placeholder={currentStatus.hostname || selectedNode.id}
+            placeholder={snapshot?.id || selectedNode.id}
             icon={Monitor}
-            helper={`Current: ${currentStatus.hostname || selectedNode.id}`}
+            helper={`Current: ${snapshot?.id || selectedNode.id}`}
           />
         </div>
       </ConfigSection>
 
-      {/* DNS Configuration - Pre-filled with current DNS */}
+      {/* DNS Configuration */}
       <ConfigSection
         title="DNS Servers"
         icon={Globe}
@@ -463,18 +325,18 @@ export const HostConfigTab = ({
       >
         <div className="mb-2">
           <p className="text-sm text-gray-600">
-            Current DNS: {currentStatus.dns_servers?.join(', ') || 'None configured'}
+            Current DNS: {currentStatus.dns.join(', ') || 'None configured'}
           </p>
         </div>
         <DynamicList
-          items={realTimeConfig.dns || currentStatus.dns_servers || ['8.8.8.8', '8.8.4.4']}
+          items={localConfig.dns || ['8.8.8.8', '8.8.4.4']}
           onChange={(dns) => handleConfigChange('dns', dns)}
           placeholder="DNS Server IP (e.g., 8.8.8.8)"
           addLabel="Add DNS Server"
         />
       </ConfigSection>
 
-      {/* Services Configuration - Shows current running services */}
+      {/* Services Configuration */}
       <ConfigSection
         title="Network Services"
         icon={Activity}
@@ -483,14 +345,20 @@ export const HostConfigTab = ({
       >
         <div className="mb-4">
           <p className="text-sm text-gray-600">
-            Currently running: {currentStatus.running_services?.length > 0 ? 
-              currentStatus.running_services.join(', ') : 'No services detected'}
+            Open ports: {currentStatus.openPorts.length > 0 ? 
+              currentStatus.openPorts.map(p => `${p.port}/${p.protocol}`).join(', ') : 
+              'No services detected'}
           </p>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {services.map((service) => {
-            const isRunning = currentStatus.running_services?.includes(service.toLowerCase());
-            const isSelected = (realTimeConfig.services || []).includes(service.toLowerCase());
+            const servicePort = {
+              'SSH': 22, 'HTTP': 80, 'HTTPS': 443, 'FTP': 21,
+              'Telnet': 23, 'SNMP': 161, 'NTP': 123, 'DHCP': 67, 'DNS': 53
+            }[service];
+            
+            const isRunning = currentStatus.openPorts.some(p => p.port === servicePort);
+            const isSelected = (localConfig.services || []).includes(service.toLowerCase());
             
             return (
               <div key={service} className="flex items-center space-x-2">
@@ -498,7 +366,7 @@ export const HostConfigTab = ({
                   label={service}
                   checked={isSelected}
                   onChange={(checked) => {
-                    const services = realTimeConfig.services || [];
+                    const services = localConfig.services || [];
                     const newServices = checked 
                       ? [...services, service.toLowerCase()]
                       : services.filter(s => s !== service.toLowerCase());
@@ -521,8 +389,22 @@ export const HostConfigTab = ({
         expanded={sections.routes}
         onToggle={() => toggleSection('routes')}
       >
+        {currentStatus.routes.length > 0 && (
+          <div className="mb-4">
+            <label className="text-sm font-medium text-gray-600">Current Routes</label>
+            <div className="bg-gray-50 p-2 rounded mt-2">
+              {currentStatus.routes.map((route, i) => (
+                <div key={i} className="text-xs font-mono">
+                  {route.destination} → {route.gateway || 'direct'} 
+                  {route.interface && ` (${route.interface})`}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        
         <DynamicList
-          items={realTimeConfig.routes || []}
+          items={localConfig.routes || []}
           onChange={(routes) => handleConfigChange('routes', routes)}
           placeholder="Route configuration"
           addLabel="Add Static Route"
@@ -543,29 +425,46 @@ export const HostConfigTab = ({
         />
       </ConfigSection>
 
-      {/* Current Routing Table Display */}
-      {currentStatus.routing_table && (
+      {/* Firewall Status */}
+      {snapshot?.firewall && (
         <ConfigSection
-          title="Current Routing Table"
-          icon={Network}
+          title="Firewall Status"
+          icon={Shield}
           expanded={false}
         >
-          <pre className="bg-gray-100 p-3 rounded text-xs overflow-x-auto">
-            {currentStatus.routing_table}
-          </pre>
+          <div className="text-sm">
+            <div className="mb-2">
+              <span className="font-medium">Status:</span> {snapshot.firewall.enabled ? 'Enabled' : 'Disabled'}
+            </div>
+            {snapshot.firewall.rules?.length > 0 && (
+              <div>
+                <span className="font-medium">Rules:</span> {snapshot.firewall.rules.length} configured
+              </div>
+            )}
+          </div>
         </ConfigSection>
       )}
 
-      {/* ARP Table Display */}
-      {currentStatus.arp_table && (
+      {/* Interface Statistics */}
+      {snapshot?.ifstats?.length > 0 && (
         <ConfigSection
-          title="Current ARP Table"
-          icon={Network}
+          title="Interface Statistics"
+          icon={Activity}
           expanded={false}
         >
-          <pre className="bg-gray-100 p-3 rounded text-xs overflow-x-auto">
-            {currentStatus.arp_table}
-          </pre>
+          <div className="space-y-2">
+            {snapshot.ifstats.map((stat, i) => (
+              <div key={i} className="bg-gray-50 p-2 rounded text-sm">
+                <div className="font-medium">{stat.interface}</div>
+                <div className="grid grid-cols-2 gap-2 text-xs mt-1">
+                  <div>RX: {stat.stats?.rx_bytes || 0} bytes</div>
+                  <div>TX: {stat.stats?.tx_bytes || 0} bytes</div>
+                  <div>RX Packets: {stat.stats?.rx_packets || 0}</div>
+                  <div>TX Packets: {stat.stats?.tx_packets || 0}</div>
+                </div>
+              </div>
+            ))}
+          </div>
         </ConfigSection>
       )}
     </div>

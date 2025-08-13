@@ -17,7 +17,7 @@ import { MessageDisplay } from './components/MessageDisplay';
 import { OverviewTab } from './tabs/OverviewTab';
 import { HostConfigTab } from './tabs/HostConfigTab';
 import { SwitchConfigTab } from './tabs/SwitchConfigTab';
-import { RouterConfigTab } from './tabs/RouterConfigTab';
+import { RouterConfigTab } from './tabs/Router/RouterConfigTab';
 import { ControllerConfigTab } from './tabs/ControllerConfigTab';
 import { TerminalTab } from './tabs/TerminalTab';
 

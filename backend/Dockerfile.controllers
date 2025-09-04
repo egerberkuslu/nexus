@@ -1,0 +1,239 @@
+# Enhanced Dockerfile with all SDN Controllers
+FROM ubuntu:22.04
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+
+# Install system dependencies including Java 17 for OpenDaylight
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-dev \
+    python3-setuptools \
+    python3-venv \
+    git \
+    curl \
+    wget \
+    net-tools \
+    iproute2 \
+    iputils-ping \
+    tcpdump \
+    iperf3 \
+    openvswitch-switch \
+    openvswitch-common \
+    openvswitch-testcontroller \
+    mininet \
+    build-essential \
+    libssl-dev \
+    libffi-dev \
+    sudo \
+    # Java 17 for OpenDaylight
+    openjdk-17-jdk \
+    openjdk-17-jre \
+    # Additional tools
+    unzip \
+    tar \
+    netstat-nat \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Verify Java installation
+RUN java -version && javac -version
+
+# Create app directory
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip3 install --no-cache-dir -r requirements.txt numpy matplotlib scipy requests
+
+# Install SDN Controllers
+
+# 1. Install os-ken (official Ryu replacement) - most stable option
+RUN echo "Installing os-ken..." && \
+    pip3 install --no-cache-dir os-ken || \
+    pip3 install --no-cache-dir git+https://github.com/openstack/os-ken.git || \
+    echo "os-ken installation failed"
+
+# 2. Install Ryu with compatibility fixes
+RUN echo "Installing Ryu..." && \
+    pip3 install --no-cache-dir setuptools==58.0.0 wheel && \
+    pip3 install --no-cache-dir eventlet==0.30.2 && \
+    pip3 install --no-cache-dir ryu==4.34 || \
+    echo "Ryu installation failed - os-ken will be used as fallback"
+
+# 3. Install POX from GitHub
+RUN echo "Installing POX..." && \
+    git clone https://github.com/noxrepo/pox.git /opt/pox && \
+    chmod +x /opt/pox/pox.py && \
+    ln -s /opt/pox/pox.py /usr/local/bin/pox || \
+    echo "POX installation failed"
+
+# 4. Install OpenDaylight (Fixed version with proper extraction)
+RUN echo "Installing OpenDaylight..." && \
+    mkdir -p /opt/opendaylight && \
+    cd /tmp && \
+    # Download OpenDaylight 0.18.1 (working version)
+    (wget -O opendaylight.tar.gz "https://nexus.opendaylight.org/content/repositories/opendaylight.release/org/opendaylight/integration/karaf/0.18.1/karaf-0.18.1.tar.gz" || \
+     echo "OpenDaylight download failed") && \
+    if [ -f opendaylight.tar.gz ]; then \
+        echo "Extracting OpenDaylight..." && \
+        tar -xzf opendaylight.tar.gz && \
+        # Move contents from karaf-0.18.1 to /opt/opendaylight
+        mv karaf-0.18.1/* /opt/opendaylight/ && \
+        rmdir karaf-0.18.1 && \
+        chmod +x /opt/opendaylight/bin/karaf && \
+        chmod +x /opt/opendaylight/bin/client && \
+        chmod +x /opt/opendaylight/bin/start && \
+        rm opendaylight.tar.gz && \
+        echo "OpenDaylight installed successfully"; \
+    else \
+        echo "OpenDaylight installation skipped - download failed"; \
+    fi
+
+# Create OpenDaylight configuration with proper features
+RUN if [ -d /opt/opendaylight ]; then \
+        mkdir -p /opt/opendaylight/etc && \
+        echo "# OpenDaylight Memory Settings" > /opt/opendaylight/etc/custom.properties && \
+        echo "wrapper.java.maxmemory=2048" >> /opt/opendaylight/etc/custom.properties && \
+        echo "wrapper.java.initmemory=512" >> /opt/opendaylight/etc/custom.properties && \
+        echo "# Features to install at boot" > /opt/opendaylight/etc/org.apache.karaf.features.cfg && \
+        echo "featuresBoot=config,standard,region,package,kar,ssh,management,odl-restconf-all,odl-openflowjava-protocol,odl-openflowplugin-app-table-miss-enforcer,odl-openflowplugin-flow-services" >> /opt/opendaylight/etc/org.apache.karaf.features.cfg; \
+    fi
+
+# Copy application code
+COPY . .
+
+# Create controller installation verification script
+RUN cat > /verify_controllers.sh << 'EOF'
+#!/bin/bash
+echo "=== SDN Controller Installation Verification ==="
+echo "Checking controller installations..."
+
+# Check os-ken/Ryu installation
+if python3 -c "import ryu; print('os-ken/Ryu: ✓ Available')" 2>/dev/null; then
+    echo "✓ os-ken/Ryu: Available"
+else
+    echo "✗ os-ken/Ryu: Not available"
+fi
+
+# Check POX installation
+if [ -f /opt/pox/pox.py ]; then
+    echo "✓ POX: Available at /opt/pox/pox.py"
+else
+    echo "✗ POX: Not available"
+fi
+
+# Check OpenDaylight installation (files only, no execution)
+if [ -f /opt/opendaylight/bin/karaf ]; then
+    echo "✓ OpenDaylight: Available at /opt/opendaylight"
+    # Check Java availability for OpenDaylight
+    if java -version >/dev/null 2>&1; then
+        JAVA_VERSION=$(java -version 2>&1 | head -1 | cut -d'"' -f2 | cut -d'_' -f1)
+        echo "✓ Java: $JAVA_VERSION (required for OpenDaylight)"
+    else
+        echo "✗ Java: Not available (required for OpenDaylight)"
+    fi
+else
+    echo "✗ OpenDaylight: Not available"
+fi
+
+echo "=== Installation Verification Complete ==="
+echo "Note: Controllers are installed but not started during verification"
+EOF
+RUN chmod +x /verify_controllers.sh
+
+# Create necessary directories and set permissions
+RUN mkdir -p /var/log/mininet-web-framework \
+    && mkdir -p /var/run/openvswitch \
+    && mkdir -p /etc/openvswitch \
+    && mkdir -p /home/root/pox \
+    && mkdir -p /home/root/opendaylight \
+    && chmod +x start.py \
+    && chmod +x app.py \
+    && chmod +x docker_start.py \
+    && chmod +x test_ryu.py \
+    && chmod +x patch_eventlet.py \
+    && chmod +x docker_controller.py
+
+# Create symlinks for controllers in user home directory (as expected by the application)
+RUN ln -sf /opt/pox /home/root/pox && \
+    ln -sf /opt/opendaylight /home/root/opendaylight
+
+# Apply eventlet patch for Ryu compatibility
+RUN python3 patch_eventlet.py || echo "Eventlet patch skipped"
+
+# Run controller verification
+RUN /verify_controllers.sh
+
+# Expose ports
+EXPOSE 5000 6633 8181
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:5000/api/status || exit 1
+
+# Run as root (required for Mininet and controller management)
+USER root
+
+# Create enhanced startup script with controller support
+RUN echo '#!/bin/bash\n\
+set -e\n\
+echo "=== Starting Mininet Web Framework with SDN Controllers ==="\n\
+\n\
+# Verify controllers\n\
+echo "Verifying controller installations..."\n\
+/verify_controllers.sh\n\
+\n\
+echo "Starting Open vSwitch initialization..."\n\
+# Load kernel modules if possible\n\
+modprobe openvswitch || echo "Warning: Could not load openvswitch module"\n\
+modprobe bridge || echo "Warning: Could not load bridge module"\n\
+\n\
+# Create OVS database if it does not exist\n\
+if [ ! -f /etc/openvswitch/conf.db ]; then\n\
+    echo "Creating OVS database..."\n\
+    ovsdb-tool create /etc/openvswitch/conf.db /usr/share/openvswitch/vswitch.ovsschema\n\
+fi\n\
+\n\
+# Start OVS database server\n\
+echo "Starting ovsdb-server..."\n\
+ovsdb-server --remote=punix:/var/run/openvswitch/db.sock \\\n\
+    --remote=db:Open_vSwitch,Open_vSwitch,manager_options \\\n\
+    --pidfile --detach\n\
+sleep 2\n\
+\n\
+# Initialize database\n\
+ovs-vsctl --no-wait init || echo "Warning: OVS already initialized"\n\
+\n\
+# Start ovs-vswitchd\n\
+echo "Starting ovs-vswitchd..."\n\
+ovs-vswitchd --pidfile --detach\n\
+sleep 2\n\
+\n\
+# Verify OVS is running\n\
+echo "Verifying OVS status..."\n\
+ovs-vsctl show\n\
+echo "OVS initialization complete"\n\
+\n\
+# Set up environment for controllers\n\
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64\n\
+export PATH=$PATH:$JAVA_HOME/bin:/opt/pox:/opt/opendaylight/bin\n\
+export POX_HOME=/opt/pox\n\
+export ODL_HOME=/opt/opendaylight\n\
+\n\
+# Test controller imports\n\
+echo "Testing controller framework..."\n\
+python3 -c "from core.mininet_manager import MininetManager; print(\"✓ Controller framework loaded\")" || echo "⚠ Controller framework issues"\n\
+\n\
+# Start the Python application\n\
+echo "Starting Mininet Web Framework..."\n\
+exec python3 docker_start.py' > /start_with_controllers.sh && chmod +x /start_with_controllers.sh
+
+# Start the application with full controller support
+CMD ["/start_with_controllers.sh"]

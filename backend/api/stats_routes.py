@@ -39,7 +39,16 @@ def get_detailed_stats():
         
         # Get comprehensive statistics
         metrics = mininet_mgr.get_network_metrics()
-        controller_stats = mininet_mgr.ryu_controller.get_controller_stats()
+        
+        # Get controller stats safely
+        controller_stats = {}
+        if hasattr(mininet_mgr, 'ryu_controller') and mininet_mgr.ryu_controller:
+            controller_stats = mininet_mgr.ryu_controller.get_controller_stats()
+        elif hasattr(mininet_mgr, 'controller_factory') and mininet_mgr.controller_factory:
+            active_controller = mininet_mgr.controller_factory.get_active_controller()
+            if active_controller:
+                controller_stats = mininet_mgr.controller_factory.get_controller_stats(active_controller)
+        
         flow_stats = mininet_mgr.get_flow_stats()
         
         # Update topology for current stats

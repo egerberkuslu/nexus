@@ -69,5 +69,10 @@ if __name__ == "__main__":
         print("✓ config_manager.CommandPlanner imported successfully")
     except ImportError as e:
         print(f"✗ Failed to import config_manager.CommandPlanner: {e}")
+    try:
+        from api.host_management import host_mgmt_bp
+        print("✓ host_management.host_mgmt_bp imported successfully")
+    except ImportError as e:
+        print(f"✗ Failed to import host_management.host_mgmt_bp: {e}")
     
     print("Import test completed!")

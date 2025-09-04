@@ -1743,6 +1743,69 @@ def apply_config():
         # Determine overall success
         overall_success = summary['failed'] == 0 and len(configuration_errors) == 0
         
+        # Track configuration application for snapshots
+        try:
+            mininet_mgr.track_api_operation(
+                operation_type='apply_config',
+                operation_data={
+                    'routers': list(router_configs.keys()),
+                    'hosts': list(host_configs.keys()),
+                    'switches': list(switch_configs.keys()),
+                    'total_commands': plan_size
+                },
+                result={
+                    'success': overall_success,
+                    'applied': summary['successful'],
+                    'failed': summary['failed'],
+                    'warnings': summary['warnings']
+                }
+            )
+            
+            # Track individual device configurations
+            # Track router configurations
+            for device_name, config_data in router_configs.items():
+                device_results = [r for r in results if r.get('node') == device_name]
+                mininet_mgr.track_device_configuration(
+                    device_name=device_name,
+                    config_type='router_config',
+                    config_data=config_data,
+                    result={
+                        'success': all(r.get('success', False) for r in device_results),
+                        'commands_applied': len(device_results),
+                        'results': device_results
+                    }
+                )
+            
+            # Track host configurations
+            for device_name, config_data in host_configs.items():
+                device_results = [r for r in results if r.get('node') == device_name]
+                mininet_mgr.track_device_configuration(
+                    device_name=device_name,
+                    config_type='host_config',
+                    config_data=config_data,
+                    result={
+                        'success': all(r.get('success', False) for r in device_results),
+                        'commands_applied': len(device_results),
+                        'results': device_results
+                    }
+                )
+            
+            # Track switch configurations
+            for device_name, config_data in switch_configs.items():
+                device_results = [r for r in results if r.get('node') == device_name]
+                mininet_mgr.track_device_configuration(
+                    device_name=device_name,
+                    config_type='switch_config',
+                    config_data=config_data,
+                    result={
+                        'success': all(r.get('success', False) for r in device_results),
+                        'commands_applied': len(device_results),
+                        'results': device_results
+                    }
+                )
+        except Exception as e:
+            logger.warning(f"Error tracking configuration application: {e}")
+        
         response_data = {
             'success': overall_success,
             'applied': summary['successful'],

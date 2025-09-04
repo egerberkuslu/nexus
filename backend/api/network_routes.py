@@ -45,11 +45,13 @@ def create_network():
                 topology_config = data.get('topology', {})
                 if not topology_config:
                     return jsonify({
-                        'success': False, 
+                        'success': False,
                         'error': 'No topology configuration provided for custom topology'
                     }), 400
-                
+
+                logger.info(f"Creating custom topology with config: {topology_config}")
                 success = mininet_mgr.create_custom_topology(topology_config)
+                logger.info(f"Custom topology creation result: {success}")
                 
             elif topology_type == 'predefined':
                 # Handle predefined topology types
@@ -74,11 +76,25 @@ def create_network():
         if success:
             message = 'Network topology created successfully'
             status_code = 200
-            
+
             # Try to update topology data
             try:
                 mininet_mgr.update_topology_data()
                 topology_summary = mininet_mgr.topology_data.get('stats', {})
+                logger.info(f"Topology created with {len(mininet_mgr.topology_data.get('nodes', []))} nodes, "
+                           f"{len(mininet_mgr.topology_data.get('links', []))} links, "
+                           f"{len(mininet_mgr.topology_data.get('controllers', []))} controllers")
+
+                # Auto-start the network if topology was created successfully
+                logger.info("Auto-starting network after topology creation...")
+                start_success = mininet_mgr.start_network()
+                if start_success:
+                    logger.info("Network auto-started successfully")
+                    message = 'Network topology created and started successfully'
+                else:
+                    logger.warning("Network auto-start failed")
+                    message = 'Network topology created but failed to start automatically'
+
             except Exception as e:
                 logger.warning(f"Could not update topology data: {e}")
                 topology_summary = {}
@@ -335,6 +351,26 @@ def stop_network():
         logger.error(f"Error stopping network: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@network_bp.route('/delete', methods=['POST'])
+@log_api_request
+def delete_network():
+    """Delete the network topology completely"""
+    try:
+        mininet_mgr = get_mininet_manager()
+        success = mininet_mgr.delete_network()
+        
+        message = 'Network topology deleted successfully' if success else 'Failed to delete network topology'
+        
+        return jsonify({
+            'success': success, 
+            'message': message,
+            'network_status': 'deleted'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error deleting network: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @network_bp.route('/restart', methods=['POST'])
 @log_api_request
 def restart_network():
@@ -471,6 +507,17 @@ def execute_command(host_id):
             return jsonify({'error': 'No command provided'}), 400
         
         result = mininet_mgr.execute_host_command(host_id, command)
+        
+        # Track terminal command execution
+        try:
+            mininet_mgr.track_terminal_command(
+                device_name=host_id,
+                command=command,
+                result=result.get('output', ''),
+                success=result.get('success', False)
+            )
+        except Exception as e:
+            logger.warning(f"Error tracking terminal command: {e}")
         
         return jsonify(result)
         

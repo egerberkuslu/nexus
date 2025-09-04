@@ -28,11 +28,18 @@ try:
     from api.controller_routes import controller_bp
     from api.topology_routes import topology_bp
     from api.stats_routes import stats_bp
+    from api.storage_routes import storage_bp
+    from api.snapshot_routes import snapshot_bp
+    from api.switch_routes import switch_bp
     from core.mininet_manager import MininetManager
     from utils.logger import setup_logger
     from api.diagnostic_routes import diagnostic_bp
     from api.device_management import device_mgmt_bp
     from api.protocol_management import protocol_mgmt_bp
+    from api.host_management import host_mgmt_bp
+    from api.performance_management import performance_api_bp
+    from api.llm_routes import llm_bp
+    from database.connection import init_database
 
 except ImportError as e:
     print(f"Import error: {e}")
@@ -46,6 +53,13 @@ CORS(app)
 # Setup logging
 logger = setup_logger(__name__)
 
+# Initialize database
+logger.info("Initializing MongoDB connection...")
+if init_database():
+    logger.info("✓ MongoDB connected successfully")
+else:
+    logger.warning("⚠ MongoDB connection failed - storage features will be disabled")
+
 # Initialize Mininet manager (singleton)
 mininet_mgr = MininetManager()
 
@@ -54,9 +68,17 @@ app.register_blueprint(network_bp, url_prefix='/api/network')
 app.register_blueprint(controller_bp, url_prefix='/api/controller')
 app.register_blueprint(topology_bp, url_prefix='/api/topology')
 app.register_blueprint(stats_bp, url_prefix='/api/stats')
+app.register_blueprint(storage_bp, url_prefix='/api/storage')
+app.register_blueprint(snapshot_bp, url_prefix='/api/snapshots')
+app.register_blueprint(switch_bp, url_prefix='/api/switch')
 app.register_blueprint(diagnostic_bp, url_prefix='/api/diagnostic')
 app.register_blueprint(device_mgmt_bp, url_prefix='/api/device-management')
 app.register_blueprint(protocol_mgmt_bp, url_prefix='/api/protocol-management')
+app.register_blueprint(host_mgmt_bp, url_prefix='/api/host-management')
+app.register_blueprint(performance_api_bp, url_prefix='/api/performance-management')
+app.register_blueprint(llm_bp, url_prefix='/api/llm')
+
+
 # Make mininet_mgr available to blueprints
 app.config['MININET_MANAGER'] = mininet_mgr
 

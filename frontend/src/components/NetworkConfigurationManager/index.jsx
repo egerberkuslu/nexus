@@ -15,11 +15,17 @@ import { TabNavigation } from './components/TabNavigation';
 import { StatusBar } from './components/StatusBar';
 import { MessageDisplay } from './components/MessageDisplay';
 import { OverviewTab } from './tabs/OverviewTab';
-import { HostConfigTab } from './tabs/HostConfigTab';
+import { HostConfigTab } from './tabs/host-config/HostConfigTab';
 import { SwitchConfigTab } from './tabs/SwitchConfigTab';
 import { RouterConfigTab } from './tabs/Router/RouterConfigTab';
 import { ControllerConfigTab } from './tabs/ControllerConfigTab';
 import { TerminalTab } from './tabs/TerminalTab';
+import { Database } from 'lucide-react';
+
+// Import additional components that will be created
+// import { PerformanceConfigTab } from './tabs/PerformanceConfigTab';
+// import { SnapshotsConfigTab } from './tabs/SnapshotsConfigTab';
+// import { StorageConfigTab } from './tabs/StorageConfigTab';
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: Activity },
@@ -27,6 +33,9 @@ const TABS = [
   { id: 'switch', label: 'Switch', icon: Server },
   { id: 'router', label: 'Router', icon: Router },
   { id: 'controller', label: 'Controller', icon: Settings },
+  { id: 'performance', label: 'Performance', icon: Activity },
+  { id: 'snapshots', label: 'Snapshots', icon: Database },
+  { id: 'storage', label: 'Storage', icon: Database },
   { id: 'terminal', label: 'Terminal', icon: Terminal }
 ];
 
@@ -43,7 +52,52 @@ const NetworkConfigurationManager = ({
   onNodeSelect: externalOnNodeSelect,
   onTabChange: externalOnTabChange,
   isModal = false,
-  hideHeader = false
+  hideHeader = false,
+  // Add incremental topology operation functions
+  onAddNode,
+  onRemoveNode,
+  onAddLink,
+  onRemoveLink,
+  // Add creation helpers
+  createNetwork,
+  createCustomTopology,
+  createPredefinedTopology,
+  // Controller management
+  switchControllerType,
+  controllerType,
+  setControllerType,
+  setControllerApp,
+  CONTROLLER_TYPES,
+  SWITCH_TYPES,
+  fetchStatus = () => {},
+  startController = () => {},
+  stopController = () => {},
+  restartController = () => {},
+  switchControllerApp = () => {},
+  clearControllerLogs = () => {},
+  // Switch management functions
+  createSwitch,
+  configureSwitch,
+  deleteSwitch,
+  addSwitchFlow,
+  deleteSwitchFlows,
+  configureP4Program,
+  // Performance monitoring functions
+  runPerformanceTest,
+  generatePerformanceReport,
+  measureLatency,
+  // Snapshot management functions
+  createSnapshot,
+  restoreSnapshot,
+  deleteSnapshot,
+  exportSnapshot,
+  // Storage management functions
+  saveTopologyToDB,
+  loadTopologyFromDB,
+  deleteTopologyFromDB,
+  saveConfiguration,
+  loadConfiguration,
+  deleteConfiguration
 }) => {
   const [internalTab, setInternalTab] = useState(externalActiveTab);
   const [internalSelectedNode, setInternalSelectedNode] = useState(externalSelectedNode);
@@ -117,15 +171,138 @@ const NetworkConfigurationManager = ({
   const renderContent = useMemo(() => {
     const common = { loading, setLoading, showMessage, apiCall, onNetworkChange };
     switch (internalTab) {
-      case 'overview': return <OverviewTab topology={topology} selectedNode={internalSelectedNode} onNodeSelect={handleNodeSelect} {...common} />;
-      case 'host': return <HostConfigTab selectedNode={internalSelectedNode} config={hostConfig} updateConfig={setHostConfig} {...common} />;
-      case 'switch': return <SwitchConfigTab selectedNode={internalSelectedNode} config={switchConfig} updateConfig={setSwitchConfig} {...common} />;
-      case 'router': return <RouterConfigTab selectedNode={internalSelectedNode} config={routerConfig} updateConfig={setRouterConfig} {...common} />;
-      case 'controller': return <ControllerConfigTab config={controllerConfig} updateConfig={setControllerConfig} {...common} />;
-      case 'terminal': return <TerminalTab topology={topology} selectedNode={internalSelectedNode} onNodeSelect={handleNodeSelect} {...common} />;
+      case 'overview': return <OverviewTab
+        topology={topology}
+        selectedNode={internalSelectedNode}
+        onNodeSelect={handleNodeSelect}
+        onAddNode={onAddNode}
+        onRemoveNode={onRemoveNode}
+        onAddLink={onAddLink}
+        onRemoveLink={onRemoveLink}
+        createNetwork={createNetwork}
+        createCustomTopology={createCustomTopology}
+        createPredefinedTopology={createPredefinedTopology}
+        {...common}
+      />;
+      case 'host': return <HostConfigTab
+        selectedNode={internalSelectedNode}
+        config={hostConfig}
+        updateConfig={setHostConfig}
+        {...common}
+      />;
+      case 'switch': return <SwitchConfigTab
+        selectedNode={internalSelectedNode}
+        config={switchConfig}
+        updateConfig={setSwitchConfig}
+        SWITCH_TYPES={SWITCH_TYPES}
+        createSwitch={createSwitch}
+        configureSwitch={configureSwitch}
+        deleteSwitch={deleteSwitch}
+        addSwitchFlow={addSwitchFlow}
+        deleteSwitchFlows={deleteSwitchFlows}
+        configureP4Program={configureP4Program}
+        {...common}
+      />;
+      case 'router': return <RouterConfigTab
+        selectedNode={internalSelectedNode}
+        config={routerConfig}
+        updateConfig={setRouterConfig}
+        {...common}
+      />;
+      case 'controller': return <ControllerConfigTab
+        config={controllerConfig}
+        updateConfig={setControllerConfig}
+        controllerType={controllerType}
+        setControllerType={setControllerType}
+        setControllerApp={setControllerApp}
+        switchControllerType={switchControllerType}
+        CONTROLLER_TYPES={CONTROLLER_TYPES}
+        fetchStatus={fetchStatus}
+        startController={startController}
+        stopController={stopController}
+        restartController={restartController}
+        switchControllerApp={switchControllerApp}
+        clearControllerLogs={clearControllerLogs}
+        {...common}
+      />;
+      case 'performance': return (
+        <div className="p-6">
+          <h3 className="text-lg font-semibold mb-4">Performance Monitoring</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <button
+              onClick={() => runPerformanceTest('bandwidth')}
+              className="p-4 border rounded-lg hover:bg-gray-50"
+            >
+              Run Bandwidth Test
+            </button>
+            <button
+              onClick={() => runPerformanceTest('latency')}
+              className="p-4 border rounded-lg hover:bg-gray-50"
+            >
+              Run Latency Test
+            </button>
+            <button
+              onClick={() => generatePerformanceReport()}
+              className="p-4 border rounded-lg hover:bg-gray-50"
+            >
+              Generate Report
+            </button>
+            <button
+              onClick={() => measureLatency()}
+              className="p-4 border rounded-lg hover:bg-gray-50"
+            >
+              Measure Latency
+            </button>
+          </div>
+        </div>
+      );
+      case 'snapshots': return (
+        <div className="p-6">
+          <h3 className="text-lg font-semibold mb-4">Snapshot Management</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <button
+              onClick={() => createSnapshot(`snapshot-${Date.now()}`, 'Auto-generated snapshot')}
+              className="p-4 border rounded-lg hover:bg-gray-50"
+            >
+              Create Snapshot
+            </button>
+            <button
+              onClick={() => {/* TODO: Implement snapshot restore UI */}}
+              className="p-4 border rounded-lg hover:bg-gray-50"
+            >
+              Restore Snapshot
+            </button>
+          </div>
+        </div>
+      );
+      case 'storage': return (
+        <div className="p-6">
+          <h3 className="text-lg font-semibold mb-4">Storage Management</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <button
+              onClick={() => saveTopologyToDB(topology, `topology-${Date.now()}`, 'Auto-saved topology')}
+              className="p-4 border rounded-lg hover:bg-gray-50"
+            >
+              Save Topology
+            </button>
+            <button
+              onClick={() => {/* TODO: Implement topology load UI */}}
+              className="p-4 border rounded-lg hover:bg-gray-50"
+            >
+              Load Topology
+            </button>
+          </div>
+        </div>
+      );
+      case 'terminal': return <TerminalTab
+        topology={topology}
+        selectedNode={internalSelectedNode}
+        onNodeSelect={handleNodeSelect}
+        {...common}
+      />;
       default: return null;
     }
-  }, [internalTab, topology, internalSelectedNode, hostConfig, switchConfig, routerConfig, controllerConfig, loading, apiCall, onNetworkChange, handleNodeSelect, showMessage]);
+  }, [internalTab, topology, internalSelectedNode, hostConfig, switchConfig, routerConfig, controllerConfig, loading, apiCall, onNetworkChange, handleNodeSelect, showMessage, onAddNode, onRemoveNode, onAddLink, onRemoveLink, createNetwork, createCustomTopology, createPredefinedTopology, SWITCH_TYPES, createSwitch, configureSwitch, deleteSwitch, addSwitchFlow, deleteSwitchFlows, configureP4Program, controllerType, setControllerType, setControllerApp, switchControllerType, CONTROLLER_TYPES, runPerformanceTest, generatePerformanceReport, measureLatency, createSnapshot, saveTopologyToDB]);
 
   // Modal Layout with proper scrolling
   const modalWrapper = (

@@ -1,5 +1,5 @@
 import React, { forwardRef } from 'react';
-import { Server, Network, Monitor, Activity, Circle, Router } from 'lucide-react';
+import { Server, Network, Monitor, Activity, Circle, Router, Cpu, Zap, Globe, Database, Layers } from 'lucide-react';
 import Draggable from 'react-draggable';
 
 const TopologyRenderer = forwardRef(({
@@ -19,25 +19,91 @@ const TopologyRenderer = forwardRef(({
   controllerStats,
   ryuApp,
   formatBytes,
-  canvasWidth
+  canvasWidth,
+  onRemoveNode,
+  onRemoveLink
 }, ref) => {
   // Extract topology data safely
-  const nodes = topology?.nodes || [];
-  const links = topology?.links || [];
-  
-  // Group nodes by type
-  const controllers = nodes.filter(n => n.type === 'controller');
+  const rawNodes = Array.isArray(topology?.nodes) ? topology.nodes : [];
+  const rawControllers = Array.isArray(topology?.controllers) ? topology.controllers : [];
+  const rawLinks = Array.isArray(topology?.links) ? topology.links : [];
+
+  // Ensure controllers are unique and not duplicated in nodes
+  const controllerIdSet = new Set();
+  const controllers = rawControllers.filter(c => {
+    if (!c || !c.id || controllerIdSet.has(c.id)) return false;
+    controllerIdSet.add(c.id);
+    return true;
+  });
+
+  // Exclude any controller-typed entries from nodes to avoid double rendering
+  const nodes = rawNodes.filter(n => n && n.type !== 'controller');
+
+  // Deduplicate links by (source,target,type)
+  const linkKeySet = new Set();
+  const links = rawLinks.filter(l => {
+    if (!l || !l.source || !l.target) return false;
+    const key = `${l.source}__${l.target}__${l.type || 'network-link'}`;
+    if (linkKeySet.has(key)) return false;
+    linkKeySet.add(key);
+    return true;
+  });
+
+  // Debug logging to help identify issues
+  console.log('TopologyRenderer - Topology data:', {
+    nodesCount: nodes.length,
+    controllersCount: controllers.length,
+    linksCount: links.length,
+    controllers: controllers.map(c => ({ id: c.id, type: c.type })),
+    links: links.map(l => ({ source: l.source, target: l.target, type: l.type }))
+  });
+
+
+
+  // Group nodes by type (excluding controllers from nodes since they're separate)
   const routers = nodes.filter(n => n.type === 'router');
   const switches = nodes.filter(n => n.type === 'switch');
   const hosts = nodes.filter(n => n.type === 'host');
 
   // Create position map with drag adjustments
   const nodePositions = {};
-  nodes.forEach(node => {
-    nodePositions[node.id] = dragPositions[node.id] || { 
-      x: node.x|| 0, 
-      y: node.y || 0 
-    };
+
+  // Add positions for all node types
+  const allNodes = [...nodes, ...controllers];
+
+  allNodes.forEach((node, index) => {
+    // Use provided coordinates or calculate default positions
+    let defaultPos;
+    if (node.x !== undefined && node.y !== undefined && node.x !== null && node.y !== null) {
+      defaultPos = { x: node.x, y: node.y };
+    } else {
+      // Calculate grid-based positions
+      const cols = 4;
+      const spacing = 150;
+      const startX = 150;
+      const startY = 150;
+
+      // Separate controllers from other nodes for positioning
+      const nonControllerNodes = allNodes.filter(n => n.type !== 'controller');
+      const controllerNodes = allNodes.filter(n => n.type === 'controller');
+
+      if (node.type === 'controller') {
+        // Position controllers at the top
+        const controllerIndex = controllerNodes.indexOf(node);
+        defaultPos = {
+          x: startX + (controllerIndex % cols) * spacing,
+          y: startY - 100  // Position controllers above regular nodes
+        };
+      } else {
+        // Position regular nodes below controllers
+        const nodeIndex = nonControllerNodes.indexOf(node);
+        defaultPos = {
+          x: startX + (nodeIndex % cols) * spacing,
+          y: startY + Math.floor(nodeIndex / cols) * 120
+        };
+      }
+    }
+    nodePositions[node.id] = dragPositions[node.id] || defaultPos;
   });
 
   // Handle node dragging
@@ -51,21 +117,77 @@ const TopologyRenderer = forwardRef(({
     }));
   };
 
-  // Render links with proper positions
+    // Render links with proper positions
+  // Helper to compute center offset by node type (to keep lines centered)
+  const getCenterOffset = (node) => {
+    const t = node?.type;
+    if (t === 'controller') return 56; // w-28 => 112px
+    if (t === 'router') return 48;     // w-24 => 96px
+    if (t === 'switch') return 40;     // w-20 => 80px
+    if (t === 'host') return 32;       // w-16 => 64px
+    return 30;
+  };
+
   const renderLinks = () => {
     return links.map((link, idx) => {
-      const sourceNode = nodes.find(n => n.id === link.source);
-      const targetNode = nodes.find(n => n.id === link.target);
-      if (!sourceNode || !targetNode) return null;
+      try {
+        // Validate link structure
+        if (!link || typeof link !== 'object') return null;
+        if (!link.source || !link.target) return null;
 
-      const sourcePos = nodePositions[sourceNode.id];
-      const targetPos = nodePositions[targetNode.id];
-      
-      if (!sourcePos || !targetPos) return null;
+        // Look for source and target in both nodes and controllers
+        const allNodes = [...nodes, ...controllers];
+        const sourceNode = allNodes.find(n => n && n.id === link.source);
+        const targetNode = allNodes.find(n => n && n.id === link.target);
+
+        if (!sourceNode || !targetNode) {
+          console.warn(`Link ${idx} missing source or target node:`, {
+            link,
+            availableNodeIds: allNodes.map(n => n.id),
+            sourceFound: !!sourceNode,
+            targetFound: !!targetNode
+          });
+          return null;
+        }
+
+        // Debug logging for controller links
+        if (link.type === 'controller-link') {
+          console.log(`Controller link ${idx}:`, {
+            link,
+            sourceNode: sourceNode ? { id: sourceNode.id, type: sourceNode.type } : null,
+            targetNode: targetNode ? { id: targetNode.id, type: targetNode.type } : null,
+            sourcePos: nodePositions[sourceNode.id],
+            targetPos: nodePositions[targetNode.id]
+          });
+        }
+
+        const sourcePos = nodePositions[sourceNode.id];
+        const targetPos = nodePositions[targetNode.id];
+
+        if (!sourcePos || !targetPos) {
+          console.warn(`Link ${idx} missing position data for ${link.source} -> ${link.target}`);
+          return null;
+        }
 
       const linkActive = networkStatus.running && link.status !== 'down';
       const isRouterLink = sourceNode.type === 'router' || targetNode.type === 'router';
       const isControllerLink = sourceNode.type === 'controller' || targetNode.type === 'controller';
+
+      // Debug logging for controller link rendering
+      if (isControllerLink) {
+        console.log(`Rendering controller link ${idx}:`, {
+          sourceNode: { id: sourceNode.id, type: sourceNode.type },
+          targetNode: { id: targetNode.id, type: targetNode.type },
+          sourcePos,
+          targetPos,
+          linkActive,
+          stroke: linkActive ? "url(#controllerLinkGradient)" : "#94a3b8",
+          strokeWidth: "6"
+        });
+      }
+
+      const srcOffset = getCenterOffset(sourceNode);
+      const tgtOffset = getCenterOffset(targetNode);
 
       return (
         <svg
@@ -88,15 +210,18 @@ const TopologyRenderer = forwardRef(({
           </defs>
           
           <line
-            x1={sourcePos.x}
-            y1={sourcePos.y}
-            x2={targetPos.x}
-            y2={targetPos.y}
+            x1={sourcePos.x + srcOffset}
+            y1={sourcePos.y + srcOffset}
+            x2={targetPos.x + tgtOffset}
+            y2={targetPos.y + tgtOffset}
             stroke={linkActive ? (isControllerLink ? "url(#controllerLinkGradient)" : isRouterLink ? "url(#routerLinkGradient)" : "url(#linkGradient)") : "#94a3b8"}
             strokeWidth={isControllerLink ? "6" : isRouterLink ? "5" : "4"}
             strokeOpacity={linkActive ? "0.8" : "0.4"}
             strokeDasharray={link.status === 'down' ? "10,10" : "0"}
-            className="transition-all duration-300"
+            className="transition-all duration-300 pointer-events-auto cursor-pointer"
+            onDoubleClick={() => {
+              if (onRemoveLink) onRemoveLink(sourceNode.id, targetNode.id);
+            }}
           />
 
           {/* Data flow animations */}
@@ -106,7 +231,7 @@ const TopologyRenderer = forwardRef(({
                 <animateMotion
                   dur="2s"
                   repeatCount="indefinite"
-                  path={`M${sourcePos.x},${sourcePos.y} L${targetPos.x},${targetPos.y}`}
+                  path={`M${sourcePos.x + srcOffset},${sourcePos.y + srcOffset} L${targetPos.x + tgtOffset},${targetPos.y + tgtOffset}`}
                 />
               </circle>
               <circle r={isControllerLink ? "5" : isRouterLink ? "4" : "3"} fill={isControllerLink ? "#ef4444" : isRouterLink ? "#10b981" : "#6366f1"} opacity="0.7">
@@ -114,7 +239,7 @@ const TopologyRenderer = forwardRef(({
                   dur="2.5s"
                   repeatCount="indefinite"
                   begin="0.5s"
-                  path={`M${targetPos.x},${targetPos.y} L${sourcePos.x},${sourcePos.y}`}
+                  path={`M${targetPos.x + tgtOffset},${targetPos.y + tgtOffset} L${sourcePos.x + srcOffset},${sourcePos.y + srcOffset}`}
                 />
               </circle>
             </>
@@ -122,8 +247,8 @@ const TopologyRenderer = forwardRef(({
 
           {/* Link info text */}
           <text
-            x={(sourcePos.x + targetPos.x) / 2}
-            y={(sourcePos.y + targetPos.y) / 2 - 10}
+            x={(sourcePos.x + srcOffset + targetPos.x + tgtOffset) / 2}
+            y={(sourcePos.y + srcOffset + targetPos.y + tgtOffset) / 2 + 20}
             textAnchor="middle"
             fill="#4b5563"
             fontSize="11"
@@ -134,19 +259,126 @@ const TopologyRenderer = forwardRef(({
           </text>
         </svg>
       );
+      } catch (error) {
+        console.error(`Error rendering link ${idx}:`, error);
+        return null;
+      }
     });
+  };
+
+  // Get controller type icon and colors
+  const getControllerTypeInfo = (controller) => {
+    const controllerType = controller.controller_type || controllerStatus?.controller_type || 'ryu';
+
+    // Debug logging
+    console.log('TopologyRenderer - Controller:', controller.id, 'Type:', controllerType, 'App:', controller.app, 'Data:', controller);
+
+    switch (controllerType) {
+      case 'ryu':
+        return {
+          icon: Cpu,
+          color: isActive => isActive
+            ? 'from-blue-400 via-blue-500 to-blue-600 border-blue-300 shadow-blue-200'
+            : 'from-gray-200 via-gray-300 to-gray-400 border-gray-300',
+          name: 'Ryu'
+        };
+      case 'pox':
+        return {
+          icon: Zap,
+          color: isActive => isActive
+            ? 'from-purple-400 via-purple-500 to-purple-600 border-purple-300 shadow-purple-200'
+            : 'from-gray-200 via-gray-300 to-gray-400 border-gray-300',
+          name: 'POX'
+        };
+      case 'osken':
+        return {
+          icon: Layers,
+          color: isActive => isActive
+            ? 'from-green-400 via-green-500 to-green-600 border-green-300 shadow-green-200'
+            : 'from-gray-200 via-gray-300 to-gray-400 border-gray-300',
+          name: 'OsKen'
+        };
+      case 'opendaylight':
+        return {
+          icon: Globe,
+          color: isActive => isActive
+            ? 'from-orange-400 via-orange-500 to-orange-600 border-orange-300 shadow-orange-200'
+            : 'from-gray-200 via-gray-300 to-gray-400 border-gray-300',
+          name: 'OpenDaylight'
+        };
+      default:
+        return {
+          icon: Server,
+          color: isActive => isActive
+            ? 'from-red-400 via-red-500 to-red-600 border-red-300 shadow-red-200'
+            : 'from-gray-200 via-gray-300 to-gray-400 border-gray-300',
+          name: 'Controller'
+        };
+    }
+  };
+
+  // Get switch type icon and colors
+  const getSwitchTypeInfo = (sw) => {
+    const switchType = sw.switch_type || 'ovs';
+
+    // Debug logging
+    console.log('TopologyRenderer - Switch:', sw.id, 'Type:', switchType, 'Data:', sw);
+
+    switch (switchType) {
+      case 'ovs':
+        return {
+          icon: Network,
+          color: isActive => isActive
+            ? 'from-blue-400 via-blue-500 to-blue-600 border-blue-300 shadow-blue-200'
+            : 'from-gray-200 via-gray-300 to-gray-400 border-gray-300',
+          name: 'Open vSwitch',
+          protocol: 'OpenFlow'
+        };
+      case 'linux_bridge':
+        return {
+          icon: Server,
+          color: isActive => isActive
+            ? 'from-green-400 via-green-500 to-green-600 border-green-300 shadow-green-200'
+            : 'from-gray-200 via-gray-300 to-gray-400 border-gray-300',
+          name: 'Linux Bridge',
+          protocol: 'N/A'
+        };
+      case 'p4':
+        return {
+          icon: Cpu,
+          color: isActive => isActive
+            ? 'from-purple-400 via-purple-500 to-purple-600 border-purple-300 shadow-purple-200'
+            : 'from-gray-200 via-gray-300 to-gray-400 border-gray-300',
+          name: 'P4 Switch',
+          protocol: 'P4Runtime'
+        };
+      default:
+        return {
+          icon: Network,
+          color: isActive => isActive
+            ? 'from-blue-400 via-blue-500 to-blue-600 border-blue-300 shadow-blue-200'
+            : 'from-gray-200 via-gray-300 to-gray-400 border-gray-300',
+          name: 'Switch',
+          protocol: 'Unknown'
+        };
+    }
   };
 
   // Render controllers
   const renderControllers = () => {
     return controllers.map(controller => {
-      const pos = nodePositions[controller.id];
-      if (!pos) return null;
+      try {
+        if (!controller || !controller.id) return null;
+        const pos = nodePositions[controller.id];
+        if (!pos) return null;
 
-      const isActive = controllerStatus?.running === true || 
+      const isActive = controllerStatus?.running === true ||
                        controllerStatus?.status === 'running' ||
                        controller.status === 'running' ||
                        (networkStatus.running && controllerStatus?.running !== false);
+
+      const controllerInfo = getControllerTypeInfo(controller);
+      const IconComponent = controllerInfo.icon;
 
       const offsetX = 50;
       const offsetY = 50;
@@ -166,15 +398,13 @@ const TopologyRenderer = forwardRef(({
               }`}
             onMouseEnter={() => setHoveredNode(controller.id)}
             onMouseLeave={() => setHoveredNode(null)}
+            onDoubleClick={() => onRemoveNode && onRemoveNode(controller.id)}
           >
             <div className="relative">
               <div
-                className={`w-28 h-28 bg-gradient-to-br rounded-3xl flex items-center justify-center shadow-xl border-2 backdrop-blur-sm transition-all duration-300 ${isActive
-                    ? 'from-red-400 via-red-500 to-red-600 border-red-300 shadow-red-200'
-                    : 'from-gray-200 via-gray-300 to-gray-400 border-gray-300'
-                  }`}
+                className={`w-28 h-28 bg-gradient-to-br rounded-3xl flex items-center justify-center shadow-xl border-2 backdrop-blur-sm transition-all duration-300 ${controllerInfo.color(isActive)}`}
               >
-                <Server className="w-14 h-14 text-white drop-shadow" />
+                <IconComponent className="w-14 h-14 text-white drop-shadow" />
               </div>
 
               {/* Active indicator */}
@@ -206,12 +436,16 @@ const TopologyRenderer = forwardRef(({
                       <span className="font-mono">{controller.id}</span>
                     </div>
                     <div className="flex justify-between">
+                      <span className="text-gray-600">Type:</span>
+                      <span className="font-mono text-[10px]">{controllerInfo.name}</span>
+                    </div>
+                    <div className="flex justify-between">
                       <span className="text-gray-600">Application:</span>
-                      <span className="font-mono text-[10px]">{controllerConfig?.type || controllerStatus?.type || ryuApp || 'simple_switch_13'}</span>
+                      <span className="font-mono text-[10px]">{controller.app || controllerConfig?.app || controllerStatus?.app || 'default'}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Protocol:</span>
-                      <span>OpenFlow 1.3</span>
+                      <span>{controller.protocol || 'OpenFlow'}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Port:</span>
@@ -250,6 +484,10 @@ const TopologyRenderer = forwardRef(({
           </div>
         </Draggable>
       );
+      } catch (error) {
+        console.error('Error rendering controller:', error);
+        return null;
+      }
     });
   };
 
@@ -281,6 +519,7 @@ const TopologyRenderer = forwardRef(({
               }`}
             onMouseEnter={() => setHoveredNode(router.id)}
             onMouseLeave={() => setHoveredNode(null)}
+            onDoubleClick={() => onRemoveNode && onRemoveNode(router.id)}
           >
             <div className="relative">
               <div
@@ -392,6 +631,8 @@ const TopologyRenderer = forwardRef(({
       const isActive = networkStatus.running;
       const hasFlows = flowStats[sw.id]?.flows?.length > 0;
       const controllerConnected = controllerStatus?.running === true || controllerStatus?.status === 'running';
+      const switchInfo = getSwitchTypeInfo(sw);
+      const IconComponent = switchInfo.icon;
 
       const offsetX = 40;
       const offsetY = 40;
@@ -411,15 +652,17 @@ const TopologyRenderer = forwardRef(({
               }`}
             onMouseEnter={() => setHoveredNode(sw.id)}
             onMouseLeave={() => setHoveredNode(null)}
+            onDoubleClick={() => onRemoveNode && onRemoveNode(sw.id)}
           >
             <div className="relative">
               <div
-                className={`w-20 h-20 bg-gradient-to-br rounded-2xl flex items-center justify-center shadow-lg border-2 backdrop-blur-sm transition-all duration-300 ${isActive
-                    ? 'from-blue-400 via-blue-500 to-blue-600 border-blue-300 shadow-blue-200'
-                    : 'from-gray-200 via-gray-300 to-gray-400 border-gray-300'
-                  }`}
+                className={`w-20 h-20 bg-gradient-to-br rounded-2xl flex items-center justify-center shadow-lg border-2 backdrop-blur-sm transition-all duration-300 ${switchInfo.color(isActive)}`}
+                style={{ border: '2px solid rgba(255,255,255,0.5)' }}
               >
-                <Network className="w-10 h-10 text-white drop-shadow" />
+                <IconComponent className="w-10 h-10 text-white drop-shadow" />
+                <div className="absolute -bottom-6 text-xs font-bold text-gray-700">
+                  {sw.id}
+                </div>
               </div>
 
               {/* Controller connection indicator */}
@@ -451,26 +694,42 @@ const TopologyRenderer = forwardRef(({
 
               {/* Tooltip */}
               {hoveredNode === sw.id && (
-                <div className="absolute top-full mt-3 left-1/2 transform -translate-x-1/2 bg-white/90 backdrop-blur-sm border border-gray-300 shadow-xl text-gray-800 text-xs px-4 py-3 rounded-xl whitespace-nowrap z-40 min-w-[200px]">
+                <div className="absolute top-full mt-3 left-1/2 transform -translate-x-1/2 bg-white/90 backdrop-blur-sm border border-gray-300 shadow-xl text-gray-800 text-xs px-4 py-3 rounded-xl whitespace-nowrap z-40 min-w-[220px]">
                   <div className="space-y-1">
                     <div className="flex justify-between">
-                      <span className="text-gray-600">OpenFlow ID:</span>
+                      <span className="text-gray-600">Switch ID:</span>
                       <span className="font-mono">{sw.id}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Type:</span>
+                      <span>{switchInfo.name}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Protocol:</span>
+                      <span>{switchInfo.protocol}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Ports:</span>
                       <span>{sw.ports?.length || 3}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Protocol:</span>
-                      <span>OF1.3</span>
-                    </div>
+                    {switchInfo.protocol === 'OpenFlow' && sw.dpid && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">DPID:</span>
+                        <span className="font-mono">{sw.dpid}</span>
+                      </div>
+                    )}
                     {flowStats[sw.id] && (
                       <div className="flex justify-between">
                         <span className="text-gray-600">Flows:</span>
                         <span>{flowStats[sw.id].flows?.length || 0}</span>
                       </div>
                     )}
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Controller:</span>
+                      <span className={`font-semibold ${controllerConnected ? 'text-green-500' : 'text-red-500'}`}>
+                        {controllerConnected ? 'Connected' : 'Disconnected'}
+                      </span>
+                    </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Status:</span>
                       <span className={`font-semibold ${isActive ? 'text-green-500' : 'text-red-500'}`}>
@@ -515,6 +774,7 @@ const TopologyRenderer = forwardRef(({
             onClick={() => setSelectedHost(host.id)}
             onMouseEnter={() => setHoveredNode(host.id)}
             onMouseLeave={() => setHoveredNode(null)}
+            onDoubleClick={() => onRemoveNode && onRemoveNode(host.id)}
           >
             <div className="relative">
               <div

@@ -7,6 +7,7 @@ const ControlPanel = ({
   createNetwork,
   startNetwork,
   stopNetwork,
+  deleteNetwork,
   runPingTest,
   startController,
   stopController,
@@ -15,6 +16,7 @@ const ControlPanel = ({
   clearControllerLogs,
   networkStatus,
   controllerStatus,
+  topology,
   ryuApp,
   setRyuApp,
   availableApps,
@@ -25,7 +27,20 @@ const ControlPanel = ({
   // New props for custom topology
   createCustomTopology,
   savedTopologies = [],
-  onSaveTopology
+  onSaveTopology,
+  // Live topology handlers
+  onAddNode,
+  onRemoveNode,
+  onAddLink,
+  onRemoveLink,
+  // Property update handlers
+  onUpdateNodeIP,
+  onUpdateLinkBandwidth,
+  onUpdateLinkStatus,
+  onUpdateControllerPort,
+  onRefreshTopology,
+  // optional refresh action after apply
+  fetchTopology
 }) => {
   const [showTopologyBuilder, setShowTopologyBuilder] = useState(false);
 
@@ -89,6 +104,18 @@ const ControlPanel = ({
               icon={<Square className="w-4 h-4" />}
               label="Stop Network"
               color="danger"
+            />
+          </div>
+
+          {/* Delete Network Button */}
+          <div className="mt-4">
+            <ActionButton
+              onClick={deleteNetwork}
+              disabled={networkStatus.running}
+              icon={<Square className="w-4 h-4" />}
+              label="Delete Network"
+              color="danger"
+              size="md"
             />
           </div>
 
@@ -273,6 +300,20 @@ const ControlPanel = ({
         onCreateTopology={handleCreateCustomTopology}
         availableTemplates={savedTopologies}
         onSaveTemplate={onSaveTopology}
+        // Live mode props
+        networkStatus={networkStatus}
+        initialTopology={topology}
+        onAddNode={onAddNode}
+        onRemoveNode={onRemoveNode}
+        onAddLink={onAddLink}
+        onRemoveLink={onRemoveLink}
+        // Property update handlers
+        onUpdateNodeIP={onUpdateNodeIP}
+        onUpdateLinkBandwidth={onUpdateLinkBandwidth}
+        onUpdateLinkStatus={onUpdateLinkStatus}
+        onUpdateControllerPort={onUpdateControllerPort}
+        onRefreshTopology={onRefreshTopology}
+        onAfterApply={fetchTopology}
       />
     </>
   );

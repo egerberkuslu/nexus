@@ -138,51 +138,90 @@ class ConfigurationModel:
     created_at: datetime
     updated_at: datetime
     _id: Optional[ObjectId] = None
-    
+
+
+@dataclass
+class LLMConfigurationModel:
+    """Model for storing LLM configuration data"""
+    name: str
+    service_type: str  # 'ollama', 'openai', 'gemini', 'claude'
+    model_name: str
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None  # Plain text API key (no encryption)
+    is_active: bool = False
+    metadata: Dict[str, Any] = None
+    created_at: datetime = None
+    updated_at: datetime = None
+    _id: Optional[ObjectId] = None
+
+    def __post_init__(self):
+        """Initialize default values after dataclass creation"""
+        if self.metadata is None:
+            self.metadata = {}
+        if self.created_at is None:
+            self.created_at = datetime.now()
+        if self.updated_at is None:
+            self.updated_at = datetime.now()
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'ConfigurationModel':
-        """Create ConfigurationModel from dictionary"""
+    def from_dict(cls, data: Dict[str, Any]) -> 'LLMConfigurationModel':
+        """Create LLMConfigurationModel from dictionary"""
         # Handle ObjectId conversion
         if '_id' in data and isinstance(data['_id'], str):
             data['_id'] = ObjectId(data['_id'])
-            
+
         # Handle datetime conversion
         if 'created_at' in data and isinstance(data['created_at'], str):
             data['created_at'] = datetime.fromisoformat(data['created_at'])
         if 'updated_at' in data and isinstance(data['updated_at'], str):
             data['updated_at'] = datetime.fromisoformat(data['updated_at'])
-            
+
         return cls(**data)
-    
+
     def to_dict(self) -> Dict[str, Any]:
-        """Convert ConfigurationModel to dictionary for MongoDB storage"""
+        """Convert LLMConfigurationModel to dictionary for MongoDB storage"""
         data = asdict(self)
-        
+
         # Handle ObjectId serialization
         if self._id:
             data['_id'] = self._id
         else:
             data.pop('_id', None)
-            
+
         # Ensure datetime objects are properly formatted
         data['created_at'] = self.created_at
         data['updated_at'] = self.updated_at
-        
+
         return data
-    
+
     def to_json_dict(self) -> Dict[str, Any]:
-        """Convert ConfigurationModel to JSON-serializable dictionary"""
+        """Convert LLMConfigurationModel to JSON-serializable dictionary"""
         data = self.to_dict()
-        
+
         # Convert ObjectId to string for JSON serialization
         if '_id' in data and data['_id']:
             data['_id'] = str(data['_id'])
-            
+
         # Convert datetime to ISO format strings
         data['created_at'] = self.created_at.isoformat()
         data['updated_at'] = self.updated_at.isoformat()
-        
+
+        # Indicate if API key is present (don't expose the actual key)
+        if 'api_key' in data:
+            data['has_api_key'] = bool(data['api_key'])
+            # Remove the actual API key from JSON response for security
+            del data['api_key']
+
         return data
+
+    def get_api_key(self) -> Optional[str]:
+        """Get the API key (no decryption needed)"""
+        return self.api_key
+
+    def set_api_key(self, api_key: str):
+        """Set the API key (no encryption needed)"""
+        self.api_key = api_key
+        self.updated_at = datetime.now()
 
 # Validation functions
 def validate_topology_data(topology_data: Dict[str, Any]) -> bool:

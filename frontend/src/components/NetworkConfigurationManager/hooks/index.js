@@ -18,7 +18,7 @@ export const useMessage = () => {
 export const useNetworkApi = () => {
   const apiCall = async (endpoint, options = {}) => {
     try {
-      const response = await fetch(`/api${endpoint}`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api${endpoint}`, {
         headers: {
           'Content-Type': 'application/json',
           ...options.headers

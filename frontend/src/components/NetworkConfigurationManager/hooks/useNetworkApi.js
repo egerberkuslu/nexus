@@ -20,7 +20,7 @@ export const useNetworkApi = () => {
     setError(null);
 
     try {
-      const response = await fetch(`/api${endpoint}`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api${endpoint}`, {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',

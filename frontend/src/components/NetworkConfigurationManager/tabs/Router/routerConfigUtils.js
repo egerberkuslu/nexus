@@ -131,23 +131,31 @@ export const buildFirewallCommands = (rules = []) =>
     .filter((r) => r?.parameters && String(r.parameters).trim())
     .map((r) => `iptables ${r.action || '-A'} ${r.chain || 'INPUT'} ${r.parameters}`);
 
-// Enhanced configuration spec builder with proper interface CRUD
-export const buildConfigurationSpec = (local, selectedNode, validateOnly = false, previousConfig = null) => {
+// Enhanced configuration spec builder with comprehensive CRUD support
+export const buildConfigurationSpec = (local, selectedNode, validateOnly = false, previousState = {}) => {
   if (!selectedNode?.id) {
     throw new Error('No router selected');
   }
 
   const routerId = selectedNode.id;
   console.log('Building config spec for router:', routerId);
-  console.log('Current interfaces:', local.interfaces);
-  console.log('Previous config:', previousConfig);
+  console.log('Current config:', { 
+    interfaces: local.interfaces?.length, 
+    routes: local.routes?.length,
+    natRules: local.natRules?.length,
+    firewallRules: local.firewallRules?.length
+  });
+  console.log('Previous state:', previousState);
   
-  // Get previous interfaces for comparison
-  const previousInterfaces = previousConfig?.interfaces || [];
-  const currentInterfaces = local.interfaces || [];
+  // Handle both old format (just interfaces array) and new format (object with all rule types)
+  const previousInterfaces = Array.isArray(previousState) ? previousState : (previousState?.interfaces || []);
+  const previousRoutes = previousState?.routes || [];
+  const previousNatRules = previousState?.natRules || [];
+  const previousFirewallRules = previousState?.firewallRules || [];
   
   // Build interfaces with enhanced CRUD operations
   const interfaceConfigs = [];
+  const currentInterfaces = local.interfaces || [];
   
   // 1. Handle interfaces marked for deletion
   const interfacesToDelete = currentInterfaces.filter(intf => intf.operation === 'delete');
@@ -204,43 +212,70 @@ export const buildConfigurationSpec = (local, selectedNode, validateOnly = false
   }
 
   // Build static routes with CRUD operations  
-  const static_routes = (local.routes || [])
+  const static_routes = [];
+  const currentRoutes = local.routes || [];
+  
+  // 1. Handle current routes (including those marked for deletion)
+  currentRoutes
     .filter((r) => r.destination && r.destination.trim())
-    .map((r) => {
+    .forEach((r) => {
       const route = {
-        // backend expects 'add'|'del' (not 'delete')
         action: r.operation === 'delete' ? 'del' : (r.action || 'add').toLowerCase(),
         destination: r.destination.trim()
       };
       
       if (r.operation === 'delete') {
         route.ignore_error = true;
-        return route;
-      }
-      
-      if (r.gateway && r.gateway.trim()) {
-        route.via = r.gateway.trim();
-      }
-      
-      if (r.interface && r.interface.trim()) {
-        route.dev = r.interface.trim();
-      }
-      
-      if (r.metric !== undefined && r.metric !== '' && !isNaN(Number(r.metric))) {
-        route.metric = Number(r.metric);
+      } else {
+        if (r.gateway && r.gateway.trim()) {
+          route.via = r.gateway.trim();
+        }
+        if (r.interface && r.interface.trim()) {
+          route.dev = r.interface.trim();
+        }
+        if (r.metric !== undefined && r.metric !== '' && !isNaN(Number(r.metric))) {
+          route.metric = Number(r.metric);
+        }
       }
       
       if (route.action === 'del') {
         route.ignore_error = true;
       }
       
-      return route;
+      static_routes.push(route);
     });
 
+  // 2. Find routes that were removed (not explicitly marked for deletion)
+  if (previousRoutes.length > 0) {
+    const currentRouteDestinations = currentRoutes
+      .filter(r => r.operation !== 'delete')
+      .map(r => r.destination?.trim())
+      .filter(Boolean);
+      
+    const removedRoutes = previousRoutes
+      .filter(prevRoute => prevRoute.destination && prevRoute.destination.trim())
+      .filter(prevRoute => !currentRouteDestinations.includes(prevRoute.destination.trim()))
+      .map(prevRoute => ({
+        action: 'del',
+        destination: prevRoute.destination.trim(),
+        ignore_error: true
+      }));
+      
+    static_routes.push(...removedRoutes);
+    
+    if (removedRoutes.length > 0) {
+      console.log('Auto-detected removed routes:', removedRoutes.map(r => r.destination));
+    }
+  }
+
   // Build NAT rules with CRUD operations
-  const nat_rules = (local.natRules || [])
+  const nat_rules = [];
+  const currentNatRules = local.natRules || [];
+  
+  // 1. Handle current NAT rules
+  currentNatRules
     .filter(rule => rule.operation !== 'delete')
-    .map((rule) => {
+    .forEach((rule) => {
       const natRule = {
         action: 'add',
         type: rule.type || 'masquerade',
@@ -258,13 +293,67 @@ export const buildConfigurationSpec = (local, selectedNode, validateOnly = false
       if (rule.to_source) natRule.to_source = rule.to_source;
       if (rule.to_destination) natRule.to_destination = rule.to_destination;
       
-      return natRule;
+      nat_rules.push(natRule);
     });
 
+  // 2. Handle NAT rules marked for deletion
+  currentNatRules
+    .filter(rule => rule.operation === 'delete')
+    .forEach((rule) => {
+      const deleteRule = {
+        action: 'del',
+        type: rule.type || 'masquerade',
+        chain: rule.chain || 'POSTROUTING',
+        ignore_error: true
+      };
+      
+      if (rule.source) deleteRule.source = rule.source;
+      if (rule.destination) deleteRule.destination = rule.destination;
+      if (rule.out_interface) deleteRule.out_interface = rule.out_interface;
+      if (rule.target) deleteRule.target = rule.target;
+      
+      nat_rules.push(deleteRule);
+      console.log('Marking NAT rule for deletion:', rule.type, rule.chain);
+    });
+
+  // 3. Find NAT rules that were removed (auto-cleanup)
+  if (previousNatRules.length > 0) {
+    const currentNatRuleIds = currentNatRules
+      .filter(r => r.operation !== 'delete')
+      .map(r => `${r.type}-${r.chain}-${r.source}-${r.destination}-${r.out_interface}`)
+      .filter(Boolean);
+      
+    const removedNatRules = previousNatRules
+      .filter(prevRule => {
+        const ruleId = `${prevRule.type}-${prevRule.chain}-${prevRule.source}-${prevRule.destination}-${prevRule.out_interface}`;
+        return !currentNatRuleIds.includes(ruleId);
+      })
+      .map(prevRule => ({
+        action: 'del',
+        type: prevRule.type || 'masquerade',
+        chain: prevRule.chain || 'POSTROUTING',
+        source: prevRule.source,
+        destination: prevRule.destination,
+        out_interface: prevRule.out_interface,
+        target: prevRule.target,
+        ignore_error: true
+      }));
+      
+    nat_rules.push(...removedNatRules);
+    
+    if (removedNatRules.length > 0) {
+      console.log('Auto-detected removed NAT rules:', removedNatRules.length);
+    }
+  }
+
   // Build firewall rules with CRUD operations
-  const firewall_rules = (local.firewallRules || [])
+  const firewall_rules = [];
+  const currentFirewallRules = local.firewallRules || [];
+  
+  // 1. Handle current firewall rules
+  currentFirewallRules
     .filter(rule => rule.operation !== 'delete')
-    .map((rule) => {
+    .forEach((rule) => {
       const fwRule = {
         action: 'add',
         chain: rule.chain || 'INPUT'
@@ -281,8 +370,60 @@ export const buildConfigurationSpec = (local, selectedNode, validateOnly = false
       if (rule.target) fwRule.target = rule.target;
       if (rule.position) fwRule.position = rule.position;
       
-      return fwRule;
+      firewall_rules.push(fwRule);
     });
+
+  // 2. Handle firewall rules marked for deletion
+  currentFirewallRules
+    .filter(rule => rule.operation === 'delete')
+    .forEach((rule) => {
+      const deleteRule = {
+        action: 'del',
+        chain: rule.chain || 'INPUT',
+        ignore_error: true
+      };
+      
+      if (rule.protocol) deleteRule.protocol = rule.protocol;
+      if (rule.source) deleteRule.source = rule.source;
+      if (rule.destination) deleteRule.destination = rule.destination;
+      if (rule.sport) deleteRule.sport = rule.sport;
+      if (rule.dport) deleteRule.dport = rule.dport;
+      if (rule.target) deleteRule.target = rule.target;
+      
+      firewall_rules.push(deleteRule);
+      console.log('Marking firewall rule for deletion:', rule.chain, rule.target);
+    });
+
+  // 3. Find firewall rules that were removed (auto-cleanup)
+  if (previousFirewallRules.length > 0) {
+    const currentFirewallRuleIds = currentFirewallRules
+      .filter(r => r.operation !== 'delete')
+      .map(r => `${r.chain}-${r.protocol}-${r.source}-${r.destination}-${r.dport}-${r.target}`)
+      .filter(Boolean);
+      
+    const removedFirewallRules = previousFirewallRules
+      .filter(prevRule => {
+        const ruleId = `${prevRule.chain}-${prevRule.protocol}-${prevRule.source}-${prevRule.destination}-${prevRule.dport}-${prevRule.target}`;
+        return !currentFirewallRuleIds.includes(ruleId);
+      })
+      .map(prevRule => ({
+        action: 'del',
+        chain: prevRule.chain || 'INPUT',
+        protocol: prevRule.protocol,
+        source: prevRule.source,
+        destination: prevRule.destination,
+        sport: prevRule.sport,
+        dport: prevRule.dport,
+        target: prevRule.target,
+        ignore_error: true
+      }));
+      
+    firewall_rules.push(...removedFirewallRules);
+    
+    if (removedFirewallRules.length > 0) {
+      console.log('Auto-detected removed firewall rules:', removedFirewallRules.length);
+    }
+  }
 
   // Build routing protocol configuration
   const routing_protocol = {
@@ -338,7 +479,14 @@ export const buildConfigurationSpec = (local, selectedNode, validateOnly = false
     },
   };
 
-  console.log('Generated spec:', JSON.stringify(spec, null, 2));
+  console.log('Generated spec summary:', {
+    interfaces: interfaceConfigs.length,
+    static_routes: static_routes.length,
+    nat_rules: nat_rules.length,
+    firewall_rules: firewall_rules.length,
+    commands: commands.length
+  });
+
   return spec;
 };
 
@@ -522,7 +670,7 @@ export function reducer(state, action) {
   }
 }
 
-// Validation helpers
+// Enhanced validation helpers
 export const validateConfiguration = (local, selectedNode) => {
   const errors = [];
   
@@ -583,6 +731,22 @@ export const validateConfiguration = (local, selectedNode) => {
       errors.push(`Route ${index + 1}: Destination is required`);
     }
     
+    // Validate destination format
+    if (route.destination && route.destination.trim() && route.destination.trim() !== 'default') {
+      const dest = route.destination.trim();
+      if (dest.includes('/')) {
+        const [ip, prefix] = dest.split('/');
+        const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
+        if (!ipRegex.test(ip)) {
+          errors.push(`Route ${index + 1}: Invalid destination IP format`);
+        }
+        const prefixNum = Number(prefix);
+        if (isNaN(prefixNum) || prefixNum < 0 || prefixNum > 32) {
+          errors.push(`Route ${index + 1}: Invalid destination prefix length`);
+        }
+      }
+    }
+    
     if (route.metric !== undefined && route.metric !== '') {
       const metric = Number(route.metric);
       if (isNaN(metric) || metric < 0) {
@@ -596,8 +760,20 @@ export const validateConfiguration = (local, selectedNode) => {
   natRules.forEach((rule, index) => {
     if (rule.operation === 'delete') return;
     
-    if (!rule.target || !rule.target.trim()) {
-      errors.push(`NAT rule ${index + 1}: Target is required`);
+    if (!rule.type || !rule.type.trim()) {
+      errors.push(`NAT rule ${index + 1}: Type is required`);
+    }
+    
+    if (!rule.chain || !rule.chain.trim()) {
+      errors.push(`NAT rule ${index + 1}: Chain is required`);
+    }
+    
+    if (rule.type === 'snat' && (!rule.to_source || !rule.to_source.trim())) {
+      errors.push(`NAT rule ${index + 1}: SNAT rules require 'To Source' address`);
+    }
+    
+    if (rule.type === 'dnat' && (!rule.to_destination || !rule.to_destination.trim())) {
+      errors.push(`NAT rule ${index + 1}: DNAT rules require 'To Destination' address`);
     }
   });
   
@@ -608,6 +784,10 @@ export const validateConfiguration = (local, selectedNode) => {
     
     if (!rule.target || !rule.target.trim()) {
       errors.push(`Firewall rule ${index + 1}: Target is required`);
+    }
+    
+    if (!rule.chain || !rule.chain.trim()) {
+      errors.push(`Firewall rule ${index + 1}: Chain is required`);
     }
   });
   

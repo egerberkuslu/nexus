@@ -23,6 +23,11 @@ class DatabaseManager:
         self.connection_string = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/')
         self.database_name = os.getenv('DATABASE_NAME', 'mininet_web_framework')
         
+        # Collection references (will be set after connection)
+        self.topologies = None
+        self.configurations = None
+        self.llm_configurations = None
+        
     def connect(self):
         """Establish connection to MongoDB"""
         try:
@@ -36,6 +41,11 @@ class DatabaseManager:
             # Test the connection
             self.client.admin.command('ping')
             self.db = self.client[self.database_name]
+            
+            # Initialize collection references
+            self.topologies = self.db['topologies']
+            self.configurations = self.db['configurations']
+            self.llm_configurations = self.db['llm_configurations']
             
             logger.info(f"Connected to MongoDB database: {self.database_name}")
             return True
@@ -84,6 +94,14 @@ class DatabaseManager:
             configurations.create_index([("device_type", 1)])
             configurations.create_index([("created_at", -1)])
             configurations.create_index([("updated_at", -1)])
+            
+            # LLM Configuration collection indexes
+            llm_configurations = self.get_collection('llm_configurations')
+            llm_configurations.create_index([("name", 1)], unique=True)
+            llm_configurations.create_index([("service_type", 1)])
+            llm_configurations.create_index([("is_active", 1)])
+            llm_configurations.create_index([("created_at", -1)])
+            llm_configurations.create_index([("updated_at", -1)])
             
             logger.info("Database indexes created successfully")
             return True

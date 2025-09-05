@@ -1,0 +1,28 @@
+{
+  "timestamp": "2025-09-03T17:19:17.474698",
+  "total_time": 11.601512,
+  "results": {
+    "prerequisites": {
+      "java": true,
+      "java_home": false,
+      "port_8181": false,
+      "port_8101": false,
+      "port_6633": true,
+      "odl_exists": true
+    },
+    "installation_check": true,
+    "startup": true,
+    "startup_time": 1.461984634399414,
+    "rest_api": {
+      "/rests/version": false,
+      "/rests/data": true,
+      "/restconf/operational/system": false,
+      "/restconf/modules": false
+    },
+    "process_running": true,
+    "port_8181_used": true,
+    "port_8101_used": true,
+    "port_6633_used": false,
+    "log_files": 1
+  }
+}

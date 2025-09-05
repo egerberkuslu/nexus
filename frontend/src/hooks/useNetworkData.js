@@ -44,7 +44,7 @@ export const useNetworkData = ({
         return newHistory.slice(-20); // Keep last 20 readings
       });
     }
-  }, [networkStatus.running, apiCall, setNetworkMetrics, setMetricsHistory]);
+  }, [networkStatus.running, apiCall]);
 
   // Fetch detailed network statistics
   const fetchDetailedStats = useCallback(async () => {
@@ -57,21 +57,68 @@ export const useNetworkData = ({
         setFlowStats(result.data.flow_stats);
       }
     }
-  }, [networkStatus.running, apiCall, setDetailedStats, setFlowStats]);
+  }, [networkStatus.running, apiCall]);
 
   const fetchStatus = useCallback(async () => {
     const result = await apiCall('/network/status');
     if (result.success) {
-      setNetworkStatus(result.data);
+      setNetworkStatus(prevStatus => {
+        // Only update if data actually changed to prevent unnecessary re-renders
+        if (JSON.stringify(prevStatus) !== JSON.stringify(result.data)) {
+          return result.data;
+        }
+        return prevStatus;
+      });
     }
-  }, [apiCall, setNetworkStatus]);
+  }, [apiCall]);
 
   const fetchTopology = useCallback(async () => {
     const result = await apiCall('/topology/full');
     if (result.success) {
-      setTopology(result.data);
+      setTopology(prevTopology => {
+        // Only update if data actually changed to prevent unnecessary re-renders
+        if (JSON.stringify(prevTopology) !== JSON.stringify(result.data)) {
+          return result.data;
+        }
+        return prevTopology;
+      });
+    } else {
+      console.error('Failed to fetch topology:', result.error);
     }
-  }, [apiCall, setTopology]);
+  }, [apiCall]);
+
+  // Incremental topology operations
+  const addTopologyNode = useCallback(async (node, options = {}) => {
+    const res = await apiCall('/topology/nodes', { method: 'POST', body: JSON.stringify(node) });
+    if (res.success && options.refresh !== false) {
+      await fetchTopology();
+    }
+    return res;
+  }, [apiCall, fetchTopology]);
+
+  const removeTopologyNode = useCallback(async (nodeId, options = {}) => {
+    const res = await apiCall(`/topology/nodes/${nodeId}`, { method: 'DELETE' });
+    if (res.success && options.refresh !== false) {
+      await fetchTopology();
+    }
+    return res;
+  }, [apiCall, fetchTopology]);
+
+  const addTopologyLink = useCallback(async (link, options = {}) => {
+    const res = await apiCall('/topology/links', { method: 'POST', body: JSON.stringify(link) });
+    if (res.success && options.refresh !== false) {
+      await fetchTopology();
+    }
+    return res;
+  }, [apiCall, fetchTopology]);
+
+  const removeTopologyLink = useCallback(async (source, target, options = {}) => {
+    const res = await apiCall('/topology/links', { method: 'DELETE', body: JSON.stringify({ source, target }) });
+    if (res.success && options.refresh !== false) {
+      await fetchTopology();
+    }
+    return res;
+  }, [apiCall, fetchTopology]);
 
   // Enhanced network management using correct backend endpoints
   const createNetwork = async () => {
@@ -89,6 +136,37 @@ export const useNetworkData = ({
     }
     setLoading(false);
   };
+
+  // Format topology from frontend builder to backend format (hoisted)
+  function formatTopologyForBackend(frontendTopology) {
+    try {
+      // Handle predefined topology types
+      if (frontendTopology.type && typeof frontendTopology.type === 'string') {
+        return {
+          type: frontendTopology.type,
+          ...frontendTopology
+        };
+      }
+
+      // Handle custom topology from builder
+      const formattedTopology = {
+        name: frontendTopology.name || 'Custom Topology',
+        nodes: frontendTopology.nodes || [],
+        links: (frontendTopology.links || []).map(link => ({
+          source: link.source,
+          target: link.target,
+          bandwidth: link.bandwidth || '10M',
+          delay: link.delay || '1ms',
+          loss: link.loss || 0
+        }))
+      };
+
+      return formattedTopology;
+    } catch (error) {
+      addLog(`❌ Error formatting topology: ${error.message}`, 'error', 'network');
+      throw error;
+    }
+  }
 
   // Enhanced custom topology creation
   const createCustomTopology = async (topologyConfig) => {
@@ -122,36 +200,7 @@ export const useNetworkData = ({
     }
   };
 
-  // Format topology from frontend builder to backend format
-  const formatTopologyForBackend = (frontendTopology) => {
-    try {
-      // Handle predefined topology types
-      if (frontendTopology.type && typeof frontendTopology.type === 'string') {
-        return {
-          type: frontendTopology.type,
-          ...frontendTopology
-        };
-      }
-
-      // Handle custom topology from builder
-      const formattedTopology = {
-        name: frontendTopology.name || 'Custom Topology',
-        nodes: frontendTopology.nodes || [],
-        links: (frontendTopology.links || []).map(link => ({
-          source: link.source,
-          target: link.target,
-          bandwidth: link.bandwidth || '10M',
-          delay: link.delay || '1ms',
-          loss: link.loss || 0
-        }))
-      };
-
-      return formattedTopology;
-    } catch (error) {
-      addLog(`❌ Error formatting topology: ${error.message}`, 'error', 'network');
-      throw error;
-    }
-  };
+  
 
   // Handle predefined topology creation
   const createPredefinedTopology = async (topologyType) => {
@@ -259,6 +308,36 @@ export const useNetworkData = ({
     setLoading(false);
   };
 
+  const deleteNetwork = async () => {
+    setLoading(true);
+    try {
+      const result = await apiCall('/network/delete', { method: 'POST' });
+      if (result.success && result.data.success) {
+        addLog('🗑️ Network topology deleted', 'warning', 'network');
+        await Promise.all([fetchStatus(), fetchTopology()]);
+        // Reset all data when network is deleted
+        setNetworkMetrics({
+          uptime: '00:00:00',
+          packets_transferred: 0,
+          total_bytes: 0,
+          bandwidth_mbps: 0.0,
+          latency_ms: 0.0,
+          active_flows: 0,
+          total_interfaces: 0
+        });
+        setMetricsHistory([]);
+        setDetailedStats({});
+        setFlowStats([]);
+        setInterfaceStats([]);
+      } else {
+        addLog(`❌ Failed to delete network: ${result.data?.error || result.error}`, 'error', 'network');
+      }
+    } catch (error) {
+      addLog('❌ Error deleting network', 'error', 'network');
+    }
+    setLoading(false);
+  };
+
   const runPingTest = async () => {
     setLoading(true);
     try {
@@ -303,17 +382,175 @@ export const useNetworkData = ({
     setLoading(false);
   };
 
+  // New functions for updating network properties
+  const updateNodeIP = async (nodeId, newIP, interfaceName = null) => {
+    try {
+      const body = { ip: newIP };
+      if (interfaceName) body.interface = interfaceName;
+      
+      const result = await apiCall(`/topology/nodes/${nodeId}/ip`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      
+      if (result.success) {
+        addLog(`🌐 Updated IP of ${nodeId} to ${newIP}`, 'success', 'network');
+        await fetchTopology();
+      } else {
+        addLog(`❌ Failed to update IP: ${result.data?.error || result.error}`, 'error', 'network');
+      }
+      return result;
+    } catch (error) {
+      addLog(`❌ Error updating IP: ${error.message}`, 'error', 'network');
+      return { success: false, error: error.message };
+    }
+  };
+
+  const updateLinkBandwidth = async (source, target, newBandwidth) => {
+    try {
+      const result = await apiCall('/topology/links/bandwidth', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source, target, bandwidth: newBandwidth })
+      });
+      
+      if (result.success) {
+        addLog(`📡 Updated bandwidth of ${source}-${target} to ${newBandwidth}`, 'success', 'network');
+        await fetchTopology();
+      } else {
+        addLog(`❌ Failed to update bandwidth: ${result.data?.error || result.error}`, 'error', 'network');
+      }
+      return result;
+    } catch (error) {
+      addLog(`❌ Error updating bandwidth: ${error.message}`, 'error', 'network');
+      return { success: false, error: error.message };
+    }
+  };
+
+  const updateLinkStatus = async (source, target, newStatus) => {
+    try {
+      const result = await apiCall('/topology/links/status', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source, target, status: newStatus })
+      });
+      
+      if (result.success) {
+        addLog(`🔌 Updated status of ${source}-${target} to ${newStatus}`, 'success', 'network');
+        await fetchTopology();
+      } else {
+        addLog(`❌ Failed to update link status: ${result.data?.error || result.error}`, 'error', 'network');
+      }
+      return result;
+    } catch (error) {
+      addLog(`❌ Error updating link status: ${error.message}`, 'error', 'network');
+      return { success: false, error: error.message };
+    }
+  };
+
+  const updateControllerPort = async (controllerId, newPort) => {
+    try {
+      const result = await apiCall(`/topology/controllers/${controllerId}/port`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ port: newPort })
+      });
+      
+      if (result.success) {
+        addLog(`🎛️ Updated controller ${controllerId} port to ${newPort}`, 'success', 'network');
+        await fetchTopology();
+      } else {
+        addLog(`❌ Failed to update controller port: ${result.data?.error || result.error}`, 'error', 'network');
+      }
+      return result;
+    } catch (error) {
+      addLog(`❌ Error updating controller port: ${error.message}`, 'error', 'network');
+      return { success: false, error: error.message };
+    }
+  };
+
+  const getNodeInterfaces = async (nodeId) => {
+    try {
+      const result = await apiCall(`/topology/nodes/${nodeId}/interfaces`, {
+        method: 'GET'
+      });
+      
+      if (result.success) {
+        return result.data;
+      } else {
+        addLog(`❌ Failed to get interfaces: ${result.data?.error || result.error}`, 'error', 'network');
+        return { success: false, error: result.data?.error || result.error };
+      }
+    } catch (error) {
+      addLog(`❌ Error getting interfaces: ${error.message}`, 'error', 'network');
+      return { success: false, error: error.message };
+    }
+  };
+
+  const refreshTopology = async () => {
+    try {
+      const result = await apiCall('/topology/refresh', {
+        method: 'POST'
+      });
+      
+      if (result.success) {
+        addLog('🔄 Topology data refreshed from Mininet', 'success', 'network');
+        // Fetch the updated topology
+        await fetchTopology();
+        return result;
+      } else {
+        addLog(`❌ Failed to refresh topology: ${result.data?.error || result.error}`, 'error', 'network');
+        return { success: false, error: result.data?.error || result.error };
+      }
+    } catch (error) {
+      addLog(`❌ Error refreshing topology: ${error.message}`, 'error', 'network');
+      return { success: false, error: error.message };
+    }
+  };
+
+  const getLinkBandwidth = async (source, target) => {
+    try {
+      const result = await apiCall(`/topology/links/bandwidth/${source}/${target}`, {
+        method: 'GET'
+      });
+      
+      if (result.success) {
+        addLog(`📡 Current bandwidth of ${source}-${target}: ${result.bandwidth_display}`, 'info', 'network');
+        return result;
+      } else {
+        addLog(`❌ Failed to get link bandwidth: ${result.data?.error || result.error}`, 'error', 'network');
+        return { success: false, error: result.data?.error || result.error };
+      }
+    } catch (error) {
+      addLog(`❌ Error getting link bandwidth: ${error.message}`, 'error', 'network');
+      return { success: false, error: error.message };
+    }
+  };
+
   return {
     fetchNetworkMetrics,
     fetchDetailedStats,
     fetchStatus,
     fetchTopology,
+    addTopologyNode,
+    removeTopologyNode,
+    addTopologyLink,
+    removeTopologyLink,
     createNetwork,
     createCustomTopology,
     createPredefinedTopology,
     startNetwork,
     stopNetwork,
+    deleteNetwork,
     runPingTest,
-    executeCommand
+    executeCommand,
+    updateNodeIP,
+    updateLinkBandwidth,
+    updateLinkStatus,
+    updateControllerPort,
+    getNodeInterfaces,
+    refreshTopology,
+    getLinkBandwidth
   };
 };

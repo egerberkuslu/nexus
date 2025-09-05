@@ -39,6 +39,7 @@ try:
     from api.host_management import host_mgmt_bp
     from api.performance_management import performance_api_bp
     from api.llm_routes import llm_bp
+    from api.llm_config_routes import llm_config_bp
     from database.connection import init_database
 
 except ImportError as e:
@@ -77,6 +78,7 @@ app.register_blueprint(protocol_mgmt_bp, url_prefix='/api/protocol-management')
 app.register_blueprint(host_mgmt_bp, url_prefix='/api/host-management')
 app.register_blueprint(performance_api_bp, url_prefix='/api/performance-management')
 app.register_blueprint(llm_bp, url_prefix='/api/llm')
+app.register_blueprint(llm_config_bp, url_prefix='/api/llm-config')
 
 
 # Make mininet_mgr available to blueprints

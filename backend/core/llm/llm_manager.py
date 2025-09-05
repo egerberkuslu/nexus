@@ -67,6 +67,7 @@ class LLMManager:
         self.llm_service: BaseLLMService = None
         self.conversation_history = ConversationHistory()
         self.logger = logger
+        self._config_id = None  # Track current configuration ID
         
         # Initialize the LLM service
         self._initialize_service()
@@ -87,13 +88,16 @@ class LLMManager:
     def switch_service(self, service_type: str, **service_kwargs):
         """Switch to a different LLM service"""
         try:
+            self.logger.info(f"Switching to {service_type} LLM service with kwargs: {list(service_kwargs.keys())}")
             self.service_type = service_type
             self.service_kwargs = service_kwargs
             self.llm_service = LLMFactory.create_service(service_type, **service_kwargs)
-            self.logger.info(f"Switched to {service_type} LLM service")
+            self.logger.info(f"Successfully switched to {service_type} LLM service")
+            self.logger.info(f"New service model: {getattr(self.llm_service, 'model_name', 'unknown')}")
             return True
         except Exception as e:
             self.logger.error(f"Failed to switch to {service_type} service: {e}")
+            self.logger.error(f"Service kwargs were: {service_kwargs}")
             return False
     
     def is_service_available(self) -> bool:
@@ -580,5 +584,96 @@ Return ONLY the JSON. No explanations, no text before or after.
             "model_name": getattr(self.llm_service, 'model_name', 'unknown'),
             "base_url": getattr(self.llm_service, 'base_url', 'unknown'),
             "available": self.is_service_available(),
-            "history_length": len(self.conversation_history.history)
+            "history_length": len(self.conversation_history.history),
+            "config_id": self._config_id
         }
+    
+    def initialize_from_config(self, config_id: str) -> bool:
+        """
+        Initialize LLM service from a stored configuration
+        
+        Args:
+            config_id: Configuration ID to load
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            from database.llm_config_service import get_llm_config_service
+            
+            service = get_llm_config_service()
+            config = service.get_config(config_id)
+            
+            if not config:
+                self.logger.error(f"Configuration {config_id} not found")
+                return False
+            
+            # Get decrypted API key
+            api_key = config.get_api_key()
+            
+            # Prepare service kwargs based on service type
+            if config.service_type == 'ollama':
+                service_kwargs = {
+                    'model_name': config.model_name,
+                    'base_url': config.base_url or 'http://localhost:11434'
+                }
+            elif config.service_type in ['openai', 'gemini', 'claude']:
+                service_kwargs = {
+                    'model_name': config.model_name,
+                    'api_key': api_key
+                }
+            else:
+                service_kwargs = {
+                    'model_name': config.model_name,
+                    'base_url': config.base_url
+                }
+                if api_key:
+                    service_kwargs['api_key'] = api_key
+            
+            # Switch to the new service
+            success = self.switch_service(config.service_type, **service_kwargs)
+            
+            if success:
+                self._config_id = config_id
+                self.logger.info(f"Initialized LLM service from configuration: {config.name}")
+                return True
+            else:
+                self.logger.error(f"Failed to initialize service from configuration: {config.name}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Error initializing from configuration {config_id}: {e}")
+            return False
+    
+    def initialize_from_active_config(self) -> bool:
+        """
+        Initialize LLM service from the currently active configuration
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            from database.llm_config_service import get_llm_config_service
+            
+            service = get_llm_config_service()
+            config = service.get_active_config()
+            
+            if not config:
+                self.logger.warning("No active LLM configuration found, using default")
+                return False
+            
+            return self.initialize_from_config(str(config._id))
+            
+        except Exception as e:
+            self.logger.error(f"Error initializing from active configuration: {e}")
+            return False
+    
+    def reload_from_config(self) -> bool:
+        """
+        Reload the current configuration (useful after configuration updates)
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        # Always reload from the current active configuration, not the stored config_id
+        return self.initialize_from_active_config()

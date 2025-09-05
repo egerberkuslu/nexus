@@ -1,5 +1,76 @@
 import { useState, useCallback } from 'react';
 
+// Helper function to enhance topology with controller and switch type information
+const enhanceTopologyWithTypeInfo = (topology) => {
+  const enhanced = { ...topology };
+  
+  // Ensure nodes array exists
+  if (!enhanced.nodes) {
+    enhanced.nodes = [];
+  }
+  
+  // Enhance each node with type-specific attributes
+  enhanced.nodes = enhanced.nodes.map(node => {
+    const enhancedNode = { ...node };
+    
+    if (node.type === 'controller') {
+      // Add default controller type attributes if missing
+      if (!enhancedNode.controller_type) {
+        enhancedNode.controller_type = 'ryu';
+      }
+      if (!enhancedNode.app) {
+        enhancedNode.app = 'simple_switch_13';
+      }
+      if (!enhancedNode.protocol) {
+        enhancedNode.protocol = 'OpenFlow';
+      }
+      if (!enhancedNode.version) {
+        enhancedNode.version = '1.3';
+      }
+      if (!enhancedNode.port) {
+        enhancedNode.port = 6633;
+      }
+    } else if (node.type === 'switch') {
+      // Add default switch type attributes if missing
+      if (!enhancedNode.switch_type) {
+        enhancedNode.switch_type = 'ovs';
+      }
+      if (!enhancedNode.dpid) {
+        enhancedNode.dpid = 'auto';
+      }
+      if (!enhancedNode.openflow_version) {
+        enhancedNode.openflow_version = '1.3';
+      }
+    }
+    
+    return enhancedNode;
+  });
+  
+  // Ensure controllers array exists and is populated
+  if (!enhanced.controllers) {
+    enhanced.controllers = [];
+  }
+  
+  // Add controllers from nodes if not already in controllers list
+  const controllerIds = new Set(enhanced.controllers.map(c => c.id));
+  enhanced.nodes.forEach(node => {
+    if (node.type === 'controller' && !controllerIds.has(node.id)) {
+      enhanced.controllers.push(node);
+    }
+  });
+  
+  // Add metadata about supported types
+  if (!enhanced.metadata) {
+    enhanced.metadata = {};
+  }
+  
+  enhanced.metadata.supported_controller_types = ['ryu', 'pox', 'osken', 'opendaylight'];
+  enhanced.metadata.supported_switch_types = ['ovs', 'linux_bridge', 'p4'];
+  enhanced.metadata.enhanced_with_type_info = true;
+  
+  return enhanced;
+};
+
 export const useTopologyData = ({ apiCall, addLog, setLoading }) => {
   const [savedTopologies, setSavedTopologies] = useState([]);
 
@@ -15,21 +86,24 @@ export const useTopologyData = ({ apiCall, addLog, setLoading }) => {
     }
   }, [addLog]);
 
-  // Save topology to localStorage
+  // Save topology to localStorage with enhanced controller/switch type information
   const saveTopology = useCallback((topology) => {
     try {
+      // Enhance topology with controller and switch type information
+      const enhancedTopology = enhanceTopologyWithTypeInfo(topology);
+      
       const newTopology = {
-        ...topology,
+        ...enhancedTopology,
         id: Date.now().toString(),
         created: new Date().toISOString(),
-        version: '1.0'
+        version: '2.0' // Updated version to indicate enhanced type information
       };
 
       const updatedTopologies = [...savedTopologies, newTopology];
       setSavedTopologies(updatedTopologies);
       localStorage.setItem('mininet_saved_topologies', JSON.stringify(updatedTopologies));
       
-      addLog(`💾 Topology "${topology.name}" saved successfully`, 'success', 'topology');
+      addLog(`💾 Topology "${topology.name}" saved successfully with type information`, 'success', 'topology');
       return newTopology;
     } catch (error) {
       addLog('❌ Error saving topology', 'error', 'topology');

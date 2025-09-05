@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api`;
 
 export const useApiCall = (setConnectionStatus, setLogs) => {
   // Enhanced logging with categorization
@@ -38,10 +38,23 @@ export const useApiCall = (setConnectionStatus, setLogs) => {
       return { success: true, data };
     } catch (error) {
       setConnectionStatus('error');
-      addLog(`API Error (${endpoint}): ${error.message}`, 'error', 'api');
+      // Use addLog directly without including it in dependencies to avoid circular dependency
+      const logEntry = {
+        id: Date.now() + Math.random(),
+        time: new Date().toLocaleTimeString(),
+        message: `API Error (${endpoint}): ${error.message}`,
+        type: 'error',
+        category: 'api',
+        timestamp: Date.now()
+      };
+
+      setLogs(prev => {
+        const newLogs = [...prev, logEntry];
+        return newLogs.slice(-50);
+      });
       return { success: false, error: error.message };
     }
-  }, [addLog, setConnectionStatus]);
+  }, [setConnectionStatus, setLogs]);
 
   return { apiCall, addLog };
 };

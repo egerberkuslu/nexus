@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Wifi,
+  WifiOff,
   Maximize2,
   Minimize2,
   AlertCircle,
@@ -22,10 +23,16 @@ import {
   X,
   Monitor,
   Server,
-  Layers
+  Layers,
+  Play,
+  Square,
+  Info,
+  Database,
+  Save,
+  FolderOpen
 } from 'lucide-react';
 
-// Import components
+// Core Components
 import Header from './components/Header';
 import MetricsDashboard from './components/MetricsDashboard';
 import ControlPanel from './components/ControlPanel';
@@ -38,44 +45,57 @@ import FlowStatistics from './components/FlowStatistics';
 import NetworkDiagnostic from './components/NetworkDiagnostic';
 import DiagnosticWidget from './components/DiagnosticWidget';
 
-// Import the new Network Configuration Manager
+// Advanced Components
 import NetworkConfigurationManager from './components/NetworkConfigurationManager/index';
+import PerformanceManager from './components/PerformanceManager';
+import PerformanceWidget from './components/PerformanceManager/PerformanceWidget';
+import SimulationSnapshots from './components/SimulationSnapshots';
+import SnapshotsWidget from './components/SimulationSnapshots/SnapshotsWidget';
+import StorageManager from './components/StorageManager';
 
-// Import hooks and utilities
+// Hooks
 import { useApiCall } from './hooks/useApiCall';
 import { useNetworkData } from './hooks/useNetworkData';
 import { useControllerData } from './hooks/useControllerData';
 import { useTopologyData } from './hooks/useTopologyData';
 import { useDiagnostic } from './hooks/useDiagnostic';
+import { useSwitchData } from './hooks/useSwitchData';
+import { usePerformanceData } from './hooks/usePerformanceData';
+import { useSnapshotData } from './hooks/useSnapshotData';
+import { useStorageData } from './hooks/useStorageData';
+
+// Utils
 import { formatBytes } from './utils/formatters';
 
+// Styles
 import './App.css';
 
 const MininetVisualizer = () => {
-  // Core state
-  const [networkStatus, setNetworkStatus] = useState({ running: false, network_exists: false });
-  const [controllerStatus, setControllerStatus] = useState({ running: false, app: null });
-  const [topology, setTopology] = useState({ nodes: [], links: [], controllers: [], stats: {} });
-  const [loading, setLoading] = useState(false);
-  const [logs, setLogs] = useState([]);
-  const [selectedHost, setSelectedHost] = useState('');
-  const [command, setCommand] = useState('');
-  const [ryuApp, setRyuApp] = useState('simple_switch_13');
-  const [hoveredNode, setHoveredNode] = useState(null);
-  const [dragPositions, setDragPositions] = useState({});
-  const [autoControllerEnabled, setAutoControllerEnabled] = useState(true);
+  // ============================================================================
+  // STATE MANAGEMENT
+  // ============================================================================
 
-  // Configuration modal state - NEW
-  const [showConfigModal, setShowConfigModal] = useState(false);
-  const [configSelectedNode, setConfigSelectedNode] = useState(null);
-  const [configActiveTab, setConfigActiveTab] = useState('overview');
+  // Core Network State
+  const [networkStatus, setNetworkStatus] = useState({ 
+    running: false, 
+    network_exists: false 
+  });
+  
+  const [controllerStatus, setControllerStatus] = useState({ 
+    running: false, 
+    app: null 
+  });
+  
+  const [topology, setTopology] = useState({
+    nodes: [],
+    links: [],
+    controllers: [],
+    stats: {}
+  });
 
-  // Diagnostic state
-  const [diagnosticOpen, setDiagnosticOpen] = useState(false);
-  const [showDiagnosticBadge, setShowDiagnosticBadge] = useState(false);
-  const [diagnosticWidgetVisible, setDiagnosticWidgetVisible] = useState(true);
 
-  // Real network metrics from backend
+
+  // Network Metrics
   const [networkMetrics, setNetworkMetrics] = useState({
     uptime: '00:00:00',
     packets_transferred: 0,
@@ -86,34 +106,85 @@ const MininetVisualizer = () => {
     total_interfaces: 0
   });
 
-  // Enhanced state for modern features
-  const [detailedStats, setDetailedStats] = useState({});
-  const [interfaceStats, setInterfaceStats] = useState({});
-  const [flowStats, setFlowStats] = useState({});
+  // UI State
+  const [loading, setLoading] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('connected');
   const [refreshRate, setRefreshRate] = useState(3000);
-  const [metricsHistory, setMetricsHistory] = useState([]);
+
+  // Logs and Communication
+  const [logs, setLogs] = useState([]);
+
+  // Host Terminal State
+  const [selectedHost, setSelectedHost] = useState('');
+  const [command, setCommand] = useState('');
+
+  // Controller State
+  const [ryuApp, setRyuApp] = useState('simple_switch_13');
+  const [controllerType, setControllerType] = useState('ryu');
   const [availableApps, setAvailableApps] = useState([]);
   const [controllerLogs, setControllerLogs] = useState([]);
   const [controllerConfig, setControllerConfig] = useState({});
   const [controllerStats, setControllerStats] = useState({});
-  const [pingResults, setPingResults] = useState(null);
+  const [autoControllerEnabled, setAutoControllerEnabled] = useState(true);
   const [controllerWarning, setControllerWarning] = useState(false);
 
-  // Custom hooks
+  // Network Visualization State
+  const [hoveredNode, setHoveredNode] = useState(null);
+  const [dragPositions, setDragPositions] = useState({});
+
+  // Advanced Features State
+  const [detailedStats, setDetailedStats] = useState({});
+  const [interfaceStats, setInterfaceStats] = useState({});
+  const [flowStats, setFlowStats] = useState({});
+  const [metricsHistory, setMetricsHistory] = useState([]);
+  const [pingResults, setPingResults] = useState(null);
+
+  // Modal States
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [configSelectedNode, setConfigSelectedNode] = useState(null);
+  const [configActiveTab, setConfigActiveTab] = useState('overview');
+  const [showStorageManager, setShowStorageManager] = useState(true);
+
+  const [showPerformanceManager, setShowPerformanceManager] = useState(false);
+  const [performanceManagerMinimized, setPerformanceManagerMinimized] = useState(false);
+
+  const [diagnosticOpen, setDiagnosticOpen] = useState(false);
+  const [showDiagnosticBadge, setShowDiagnosticBadge] = useState(false);
+  const [diagnosticWidgetVisible, setDiagnosticWidgetVisible] = useState(true);
+
+  const [snapshotsOpen, setSnapshotsOpen] = useState(false);
+
+  // ============================================================================
+  // HOOKS
+  // ============================================================================
+
+  // API Communication Hook
   const { apiCall, addLog } = useApiCall(setConnectionStatus, setLogs);
 
+  // Network Data Management Hook
   const {
     fetchNetworkMetrics,
     fetchDetailedStats,
     fetchStatus,
     fetchTopology,
+    addTopologyNode,
+    removeTopologyNode,
+    addTopologyLink,
+    removeTopologyLink,
+    // Property update functions
+    updateNodeIP,
+    updateLinkBandwidth,
+    updateLinkStatus,
+    updateControllerPort,
+    refreshTopology,
     createNetwork: baseCreateNetwork,
     startNetwork: baseStartNetwork,
     stopNetwork,
+    deleteNetwork,
     runPingTest: baseRunPingTest,
-    executeCommand
+    executeCommand,
+    createPredefinedTopology
   } = useNetworkData({
     apiCall,
     addLog,
@@ -131,6 +202,7 @@ const MininetVisualizer = () => {
     setCommand
   });
 
+  // Controller Management Hook
   const {
     fetchControllerStatus,
     fetchAvailableApps,
@@ -141,7 +213,9 @@ const MininetVisualizer = () => {
     stopController,
     restartController,
     switchControllerApp,
-    clearControllerLogs
+    switchControllerType,
+    clearControllerLogs,
+    CONTROLLER_TYPES
   } = useControllerData({
     apiCall,
     addLog,
@@ -156,7 +230,7 @@ const MininetVisualizer = () => {
     controllerStatus
   });
 
-  // New topology management hook
+  // Topology Management Hook
   const {
     savedTopologies,
     loadSavedTopologies,
@@ -173,7 +247,7 @@ const MininetVisualizer = () => {
     setLoading
   });
 
-  // DIAGNOSTIC HOOK
+  // Network Diagnostics Hook
   const {
     diagnosticData,
     diagnosticLoading,
@@ -191,56 +265,200 @@ const MininetVisualizer = () => {
     getDiagnosticSummary
   } = useDiagnostic({ apiCall, addLog });
 
-  // Configuration Button Component - NEW
+  // Switch Management Hook
+  const {
+    fetchAvailableSwitchTypes,
+    fetchSwitchTemplates,
+    fetchSwitchStatus,
+    createSwitch,
+    configureSwitch,
+    fetchSwitchStats,
+    addSwitchFlow,
+    deleteSwitchFlows,
+    configureP4Program,
+    getSwitchConfigOptions,
+    deleteSwitch,
+    SWITCH_TYPES
+  } = useSwitchData({
+    apiCall,
+    addLog,
+    setLoading
+  });
+
+  // Performance Monitoring Hook
+  const {
+    fetchPerformanceMetrics,
+    runPerformanceTest,
+    generatePerformanceReport,
+    checkNetworkHealth: checkPerformanceHealth,
+    getBandwidthUtilization,
+    measureLatency
+  } = usePerformanceData({
+    apiCall,
+    addLog,
+    setPerformanceMetrics: (metrics) => setNetworkMetrics(prev => ({ ...prev, ...metrics })),
+    setPerformanceHistory: (history) => setMetricsHistory(history),
+    setLoading
+  });
+
+  // Snapshot Management Hook
+  const {
+    fetchSnapshots,
+    createSnapshot,
+    restoreSnapshot,
+    deleteSnapshot,
+    exportSnapshot,
+    importSnapshot,
+    getSnapshotDetails,
+    compareSnapshots
+  } = useSnapshotData({
+    apiCall,
+    addLog,
+    setSnapshots: (snapshots) => {
+      // Update snapshots in topology data
+      setTopology(prev => ({ ...prev, snapshots }));
+    },
+    setLoading,
+    refreshTopology: fetchTopology  // Pass fetchTopology to refresh topology after restoration
+  });
+
+  // Storage/Database Management Hook
+  const {
+    fetchTopologies: fetchStoredTopologies,
+    saveTopology: saveTopologyToDB,
+    loadTopology: loadTopologyFromDB,
+    deleteTopology: deleteTopologyFromDB,
+    fetchConfigurations,
+    saveConfiguration,
+    loadConfiguration,
+    deleteConfiguration,
+    exportData,
+    importData,
+    searchData
+  } = useStorageData({
+    apiCall,
+    addLog,
+    setTopologies: (topologies) => {
+      // Update saved topologies
+      setTopology(prev => ({ ...prev, savedTopologies: topologies }));
+    },
+    setConfigurations: (configs) => {
+      // Update saved configurations
+      setTopology(prev => ({ ...prev, savedConfigurations: configs }));
+    },
+    setLoading
+  });
+
+  // ============================================================================
+  // UI COMPONENT BUILDERS
+  // ============================================================================
+
+  // Performance Manager Button
+  const PerformanceManagerButton = useCallback(() => (
+    <button
+      onClick={() => setShowPerformanceManager(true)}
+      className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105"
+      title="Open Performance Manager (Ctrl+P)"
+    >
+      <Activity size={18} />
+      <span>Performance Manager</span>
+    </button>
+  ), []);
+
+  // Configuration Button
   const ConfigurationButton = useCallback(() => (
     <button
       onClick={() => setShowConfigModal(true)}
-      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all duration-200 shadow-md hover:shadow-lg"
-      title="Open Network Configuration"
+      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105"
+      title="Open Network Configuration (Ctrl+Shift+C)"
     >
       <Settings size={18} />
       <span>Configure Network</span>
     </button>
   ), []);
 
-  // Enhanced network creation with auto-controller detection
+  // Diagnostic Button with Dynamic Styling
+  const DiagnosticButton = useCallback(() => {
+    const summary = getDiagnosticSummary();
+
+    return (
+      <button
+        onClick={() => setDiagnosticOpen(true)}
+        className={`relative flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all transform hover:scale-105 ${
+          showDiagnosticBadge
+            ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse'
+            : summary.overallStatus === 'healthy'
+              ? 'bg-green-100 hover:bg-green-200 text-green-700'
+              : summary.overallStatus === 'warning'
+                ? 'bg-yellow-100 hover:bg-yellow-200 text-yellow-700'
+                : summary.overallStatus === 'critical'
+                  ? 'bg-red-100 hover:bg-red-200 text-red-700'
+                  : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+        }`}
+        title="Open Network Diagnostics (Ctrl+D)"
+      >
+        <Activity className="w-5 h-5" />
+        <span>Diagnostics</span>
+
+        {/* Issue Count Badge */}
+        {summary.issuesCount > 0 && (
+          <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold animate-bounce">
+            {summary.issuesCount > 9 ? '9+' : summary.issuesCount}
+          </span>
+        )}
+
+        {/* Health Indicator Dot */}
+        <div className={`w-2 h-2 rounded-full ${
+          summary.overallStatus === 'healthy' ? 'bg-green-500' :
+          summary.overallStatus === 'warning' ? 'bg-yellow-500' :
+          summary.overallStatus === 'critical' ? 'bg-red-500' : 'bg-gray-400'
+        }`} />
+      </button>
+    );
+  }, [getDiagnosticSummary, showDiagnosticBadge]);
+
+  // ============================================================================
+  // ENHANCED NETWORK OPERATIONS
+  // ============================================================================
+
+  // Enhanced Network Creation with Auto-controller Detection
   const createNetwork = useCallback(async (topologyData = null) => {
     setLoading(true);
     try {
       const result = await baseCreateNetwork(topologyData);
       if (result) {
-        // Refresh topology data to check for controllers
         await fetchTopology();
-        // Show diagnostic widget after network creation
         setDiagnosticWidgetVisible(true);
+        addLog('🚀 Network created successfully', 'success', 'network');
       }
       return result;
+    } catch (error) {
+      addLog(`❌ Failed to create network: ${error.message}`, 'error', 'network');
+      return false;
     } finally {
       setLoading(false);
     }
-  }, [baseCreateNetwork, fetchTopology]);
+  }, [baseCreateNetwork, fetchTopology, addLog]);
 
-  // Enhanced network start with auto-controller management
+  // Enhanced Network Start with Intelligent Controller Management
   const startNetwork = useCallback(async () => {
     setLoading(true);
     setControllerWarning(false);
 
     try {
-      // Check if topology has controller nodes
       const hasControllerNodes = topology.controllers && topology.controllers.length > 0;
 
+      // Auto-start controller for OpenFlow topologies
       if (hasControllerNodes && !controllerStatus.running && autoControllerEnabled) {
-        addLog('🔄 Detected OpenFlow topology - starting controller automatically...', 'info', 'controller');
+        addLog('🔄 OpenFlow topology detected - starting controller automatically...', 'info', 'controller');
 
-        // Start controller first
         const controllerStarted = await startController(ryuApp);
 
         if (controllerStarted) {
           addLog('✅ Controller started successfully', 'success', 'controller');
-          // Wait a moment for controller to initialize
           await new Promise(resolve => setTimeout(resolve, 3000));
         } else {
-          addLog('⚠️ Failed to start controller - network may not work properly', 'warning', 'controller');
+          addLog('⚠️ Failed to start controller - network may not function properly', 'warning', 'controller');
           setControllerWarning(true);
         }
       }
@@ -248,18 +466,20 @@ const MininetVisualizer = () => {
       // Start the network
       const result = await baseStartNetwork();
 
-      if (result && hasControllerNodes) {
-        // Additional wait for OpenFlow switches to connect
-        addLog('🔗 Waiting for switches to connect to controller...', 'info', 'network');
-        await new Promise(resolve => setTimeout(resolve, 2000));
+      if (result) {
+        addLog('🌐 Network started successfully', 'success', 'network');
+        
+        if (hasControllerNodes) {
+          addLog('🔗 Waiting for switches to connect to controller...', 'info', 'network');
+          await new Promise(resolve => setTimeout(resolve, 2000));
 
-        // Verify controller connections
-        setTimeout(async () => {
-          await fetchControllerStats();
-          await fetchTopology();
-          // Run quick diagnostic check after network starts
-          setTimeout(quickDiagnosticCheck, 5000);
-        }, 3000);
+          // Verify controller connections
+          setTimeout(async () => {
+            await fetchControllerStats();
+            await fetchTopology();
+            setTimeout(quickDiagnosticCheck, 5000);
+          }, 3000);
+        }
       }
 
       return result;
@@ -272,12 +492,11 @@ const MininetVisualizer = () => {
   }, [baseStartNetwork, topology.controllers, controllerStatus.running, autoControllerEnabled,
     startController, ryuApp, addLog, fetchControllerStats, fetchTopology]);
 
-  // Enhanced ping test with controller status checking
+  // Enhanced Ping Test with Smart Analysis
   const runPingTest = useCallback(async () => {
     setLoading(true);
 
     try {
-      // Check if we need a controller but don't have one
       const hasControllerNodes = topology.controllers && topology.controllers.length > 0;
 
       if (hasControllerNodes && !controllerStatus.running) {
@@ -287,13 +506,12 @@ const MininetVisualizer = () => {
       const result = await baseRunPingTest();
       setPingResults(result);
 
-      // Analyze ping results
       if (result.success) {
         const lossPercent = parseInt(result.packet_loss);
+        
         if (lossPercent === 100 && hasControllerNodes && !controllerStatus.running) {
           addLog('💡 100% packet loss detected. Try starting the controller first for OpenFlow networks.', 'info', 'network');
           setControllerWarning(true);
-          // Auto-open diagnostics on complete failure
           setTimeout(() => setDiagnosticOpen(true), 1000);
         } else if (lossPercent === 0) {
           addLog('🎉 Perfect connectivity - 0% packet loss!', 'success', 'network');
@@ -301,18 +519,20 @@ const MininetVisualizer = () => {
           addLog(`✅ Good connectivity - ${lossPercent}% packet loss`, 'success', 'network');
         } else {
           addLog(`⚠️ Poor connectivity - ${lossPercent}% packet loss`, 'warning', 'network');
-          // Auto-open diagnostics on high packet loss
           setTimeout(() => setDiagnosticOpen(true), 1000);
         }
       }
 
       return result;
+    } catch (error) {
+      addLog(`❌ Ping test failed: ${error.message}`, 'error', 'network');
+      return null;
     } finally {
       setLoading(false);
     }
   }, [baseRunPingTest, topology.controllers, controllerStatus.running, addLog]);
 
-  // Quick diagnostic check function
+  // Quick Diagnostic Check
   const quickDiagnosticCheck = useCallback(async () => {
     if (!networkStatus.running) return;
 
@@ -322,21 +542,45 @@ const MininetVisualizer = () => {
     if (health && health.overall_status !== 'healthy') {
       setShowDiagnosticBadge(true);
       addLog(`⚠️ Network issues detected: ${health.overall_status}`, 'warning', 'diagnostic');
+    } else {
+      addLog('✅ Network health check passed', 'success', 'diagnostic');
     }
   }, [networkStatus.running, fetchNetworkHealth, addLog]);
 
-  // Configuration modal handlers - NEW
+  // ============================================================================
+  // MODAL HANDLERS
+  // ============================================================================
+
+  // Configuration Modal Handlers
   const handleOpenConfigForNode = useCallback((node, tab = 'overview') => {
     setConfigSelectedNode(node);
     setConfigActiveTab(tab);
     setShowConfigModal(true);
   }, []);
 
+  // Storage Manager Handlers
+  const handleOpenStorageManager = useCallback(() => {
+    setShowStorageManager(true);
+  }, []);
+
+  const handleLoadTopology = useCallback((loadedTopology) => {
+    // Refresh topology data after loading
+    fetchTopology();
+    addLog(`Topology "${loadedTopology.name}" loaded successfully`, 'success');
+  }, [fetchTopology, addLog]);
+
+  const handleLoadConfiguration = useCallback((config) => {
+    // Handle loading configuration into the UI
+    addLog(`Configuration "${config.name}" loaded for ${config.device_type}`, 'success');
+    // You could open the config modal with the loaded configuration
+    setShowConfigModal(true);
+    setConfigActiveTab(config.device_type);
+  }, [addLog]);
+
   const handleCloseConfigModal = useCallback(() => {
     setShowConfigModal(false);
     setConfigSelectedNode(null);
     setConfigActiveTab('overview');
-    // Refresh data after configuration changes
     setTimeout(() => {
       fetchStatus();
       fetchTopology();
@@ -344,52 +588,88 @@ const MininetVisualizer = () => {
     }, 1000);
   }, [fetchStatus, fetchTopology, fetchControllerStatus]);
 
-  // Diagnostic button component
-  const DiagnosticButton = useCallback(() => {
-    const summary = getDiagnosticSummary();
+  // Performance Manager Handlers
+  const handleOpenPerformanceManager = useCallback(() => {
+    setShowPerformanceManager(true);
+    setPerformanceManagerMinimized(false);
+  }, []);
 
-    return (
-      <button
-        onClick={() => setDiagnosticOpen(true)}
-        className={`relative flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${showDiagnosticBadge
-            ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse'
-            : summary.overallStatus === 'healthy'
-              ? 'bg-green-100 hover:bg-green-200 text-green-700'
-              : summary.overallStatus === 'warning'
-                ? 'bg-yellow-100 hover:bg-yellow-200 text-yellow-700'
-                : summary.overallStatus === 'critical'
-                  ? 'bg-red-100 hover:bg-red-200 text-red-700'
-                  : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-          }`}
-        title="Open Network Diagnostics"
-      >
-        <Activity className="w-5 h-5" />
-        <span>Diagnostics</span>
+  const handleClosePerformanceManager = useCallback(() => {
+    setShowPerformanceManager(false);
+    setPerformanceManagerMinimized(false);
+  }, []);
 
-        {/* Issue count badge */}
-        {summary.issuesCount > 0 && (
-          <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">
-            {summary.issuesCount > 9 ? '9+' : summary.issuesCount}
-          </span>
-        )}
+  // ============================================================================
+  // TOPOLOGY OPERATIONS
+  // ============================================================================
 
-        {/* Health indicator dot */}
-        <div className={`w-2 h-2 rounded-full ${summary.overallStatus === 'healthy' ? 'bg-green-500' :
-            summary.overallStatus === 'warning' ? 'bg-yellow-500' :
-              summary.overallStatus === 'critical' ? 'bg-red-500' : 'bg-gray-400'
-          }`} />
-      </button>
-    );
-  }, [getDiagnosticSummary, showDiagnosticBadge]);
+  const handleCreateCustomTopology = useCallback(async (topologyConfig) => {
+    const validation = validateTopology(topologyConfig);
 
-  // Load saved topologies on component mount
+    if (!validation.isValid) {
+      addLog(`❌ Topology validation failed: ${validation.errors.join(', ')}`, 'error', 'topology');
+      return false;
+    }
+
+    if (validation.warnings.length > 0) {
+      addLog(`⚠️ Topology warnings: ${validation.warnings.join(', ')}`, 'warning', 'topology');
+    }
+
+    const success = await createCustomTopology(topologyConfig);
+
+    if (success) {
+      await Promise.all([fetchStatus(), fetchTopology()]);
+
+      const hasControllerNodes = topologyConfig.nodes?.some(node => node.type === 'controller');
+      if (hasControllerNodes) {
+        addLog('ℹ️ OpenFlow topology created. Controller will auto-start when network starts.', 'info', 'topology');
+      }
+    }
+
+    return success;
+  }, [createCustomTopology, validateTopology, addLog, fetchStatus, fetchTopology]);
+
+  const handleSaveTopology = useCallback((topologyConfig) => {
+    const validation = validateTopology(topologyConfig);
+
+    if (!validation.isValid) {
+      addLog(`❌ Cannot save invalid topology: ${validation.errors.join(', ')}`, 'error', 'topology');
+      return null;
+    }
+
+    return saveTopology(topologyConfig);
+  }, [saveTopology, validateTopology, addLog]);
+
+  // ============================================================================
+  // EFFECTS
+  // ============================================================================
+
+  // Initialize all data sources
   useEffect(() => {
-    loadSavedTopologies();
-  }, [loadSavedTopologies]);
+    const initializeData = async () => {
+      try {
+        // Load saved topologies from database
+        await fetchStoredTopologies();
+        await fetchConfigurations();
 
-  // Enhanced main effect with intelligent controller management
+        // Fetch available switch types from backend
+        await fetchAvailableSwitchTypes();
+
+        // Load snapshots
+        await fetchSnapshots();
+
+        addLog('📊 All data sources initialized successfully', 'success', 'system');
+      } catch (error) {
+        addLog(`❌ Error initializing data sources: ${error.message}`, 'error', 'system');
+      }
+    };
+
+    initializeData();
+  }, []);
+
+  // Main data fetching and interval management
   useEffect(() => {
-    // Initial fetch
+    // Initial data fetch
     Promise.all([
       fetchStatus(),
       fetchTopology(),
@@ -398,7 +678,7 @@ const MininetVisualizer = () => {
       fetchControllerConfig()
     ]);
 
-    // Set up intervals for real-time updates
+    // Real-time update intervals
     const statusInterval = setInterval(() => {
       fetchStatus();
       fetchControllerStatus();
@@ -407,7 +687,8 @@ const MininetVisualizer = () => {
     const metricsInterval = setInterval(() => {
       if (networkStatus.running) {
         fetchNetworkMetrics();
-        fetchTopology();
+        fetchPerformanceMetrics(); // Fetch performance metrics
+        // Stop polling topology continuously; it's fetched on init and after updates
       }
     }, refreshRate);
 
@@ -432,20 +713,38 @@ const MininetVisualizer = () => {
       clearInterval(detailedStatsInterval);
       clearInterval(controllerLogsInterval);
     };
-  }, [networkStatus.running, controllerStatus.running, refreshRate, fetchStatus,
-    fetchControllerStatus, fetchNetworkMetrics, fetchTopology, fetchDetailedStats,
-    fetchAvailableApps, fetchControllerConfig, fetchControllerLogs, fetchControllerStats]);
+  }, [networkStatus.running, controllerStatus.running, refreshRate]);
 
-  // Monitor for controller warning conditions
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'p' && !e.shiftKey) {
+        e.preventDefault();
+        setShowPerformanceManager(true);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'C') {
+        e.preventDefault();
+        setShowConfigModal(true);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+        e.preventDefault();
+        setDiagnosticOpen(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, []);
+
+  // Monitor for controller warnings
   useEffect(() => {
     const hasControllerNodes = topology.controllers && topology.controllers.length > 0;
     const shouldWarn = hasControllerNodes && !controllerStatus.running && networkStatus.running;
     setControllerWarning(shouldWarn);
   }, [topology.controllers, controllerStatus.running, networkStatus.running]);
 
-  // Monitor for diagnostic badge conditions
+  // Monitor for diagnostic badges
   useEffect(() => {
-    // Show diagnostic badge if there are connectivity issues
     const hasControllerIssues = topology.controllers?.length > 0 && !controllerStatus.running && networkStatus.running;
     const hasPingFailures = pingResults && parseInt(pingResults.packet_loss) > 50;
     const hasNetworkIssues = !networkStatus.running && networkStatus.network_exists;
@@ -453,50 +752,10 @@ const MininetVisualizer = () => {
     setShowDiagnosticBadge(hasControllerIssues || hasPingFailures || hasNetworkIssues);
   }, [topology.controllers, controllerStatus.running, networkStatus, pingResults]);
 
-  // Enhanced topology creation handler
-  const handleCreateCustomTopology = useCallback(async (topologyConfig) => {
-    // Validate topology first
-    const validation = validateTopology(topologyConfig);
+  // ============================================================================
+  // UTILITY FUNCTIONS
+  // ============================================================================
 
-    if (!validation.isValid) {
-      addLog(`❌ Topology validation failed: ${validation.errors.join(', ')}`, 'error', 'topology');
-      return false;
-    }
-
-    if (validation.warnings.length > 0) {
-      addLog(`⚠️ Topology warnings: ${validation.warnings.join(', ')}`, 'warning', 'topology');
-    }
-
-    // Create the topology
-    const success = await createCustomTopology(topologyConfig);
-
-    if (success) {
-      // Refresh topology data after creation
-      await Promise.all([fetchStatus(), fetchTopology()]);
-
-      // Check if this topology needs a controller
-      const hasControllerNodes = topologyConfig.nodes?.some(node => node.type === 'controller');
-      if (hasControllerNodes) {
-        addLog('ℹ️ OpenFlow topology created. Controller will auto-start when network starts.', 'info', 'topology');
-      }
-    }
-
-    return success;
-  }, [createCustomTopology, validateTopology, addLog, fetchStatus, fetchTopology]);
-
-  // Enhanced topology save handler
-  const handleSaveTopology = useCallback((topologyConfig) => {
-    const validation = validateTopology(topologyConfig);
-
-    if (!validation.isValid) {
-      addLog(`❌ Cannot save invalid topology: ${validation.errors.join(', ')}`, 'error', 'topology');
-      return null;
-    }
-
-    return saveTopology(topologyConfig);
-  }, [saveTopology, validateTopology, addLog]);
-
-  // Calculate trends for metrics
   const calculateTrend = (current, history, key) => {
     if (history.length < 2) return 0;
     const previous = history[history.length - 2][key] || 0;
@@ -508,8 +767,13 @@ const MininetVisualizer = () => {
   const latencyTrend = calculateTrend(networkMetrics.latency_ms, metricsHistory, 'latency_ms');
   const packetTrend = calculateTrend(networkMetrics.packets_transferred, metricsHistory, 'packets_transferred');
 
+  // ============================================================================
+  // RENDER
+  // ============================================================================
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      {/* Header */}
       <Header
         networkStatus={networkStatus}
         controllerStatus={controllerStatus}
@@ -524,13 +788,25 @@ const MininetVisualizer = () => {
         onImportTopology={importTopologyConfig}
         DiagnosticButton={DiagnosticButton}
         diagnosticSummary={getDiagnosticSummary()}
-        // Add the configuration button to header
-        extraActions={<ConfigurationButton />}
+        extraActions={
+          <div className="flex items-center gap-2">
+            <ConfigurationButton />
+            <PerformanceManagerButton />
+            <button
+              onClick={handleOpenStorageManager}
+              className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+              title="Manage saved topologies and configurations"
+            >
+              <Database size={16} />
+              Storage
+            </button>
+          </div>
+        }
       />
 
-      {/* Enhanced Controller Warning Banner with Configuration Link */}
+      {/* Controller Warning Banner */}
       {controllerWarning && (
-        <div className="bg-yellow-100 border-l-4 border-yellow-500 p-4 mx-4 mt-2 rounded-lg">
+        <div className="bg-yellow-100 border-l-4 border-yellow-500 p-4 mx-4 mt-2 rounded-lg animate-fade-in">
           <div className="flex items-center justify-between">
             <div className="flex items-center">
               <AlertCircle className="w-5 h-5 text-yellow-500 mr-3" />
@@ -559,14 +835,17 @@ const MininetVisualizer = () => {
                 className="bg-yellow-200 hover:bg-yellow-300 text-yellow-800 px-3 py-1 rounded text-sm font-medium flex items-center gap-2 transition-colors"
               >
                 <Activity className="w-4 h-4" />
-                Diagnose Issues
+                Diagnose
               </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* Main Content */}
       <main className={`${isFullscreen ? 'fixed inset-0 top-0 z-50 bg-white' : 'max-w-[95%] mx-auto px-4 py-6'}`}>
+       
+        {/* Metrics Dashboard */}
         <MetricsDashboard
           topology={topology}
           networkMetrics={networkMetrics}
@@ -577,15 +856,17 @@ const MininetVisualizer = () => {
           diagnosticSummary={getDiagnosticSummary()}
           onOpenDiagnostics={() => setDiagnosticOpen(true)}
           onOpenConfig={() => setShowConfigModal(true)}
+          onOpenPerformanceManager={handleOpenPerformanceManager}
         />
 
-        {/* Control Panel with Enhanced Configuration Options */}
+        {/* Control Panel and Widgets */}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6">
           <div className="lg:col-span-3">
             <ControlPanel
               createNetwork={createNetwork}
               startNetwork={startNetwork}
               stopNetwork={stopNetwork}
+              deleteNetwork={deleteNetwork}
               runPingTest={runPingTest}
               startController={startController}
               stopController={stopController}
@@ -594,6 +875,7 @@ const MininetVisualizer = () => {
               clearControllerLogs={clearControllerLogs}
               networkStatus={networkStatus}
               controllerStatus={controllerStatus}
+              topology={topology}
               ryuApp={ryuApp}
               setRyuApp={setRyuApp}
               availableApps={availableApps}
@@ -609,7 +891,6 @@ const MininetVisualizer = () => {
               onOpenDiagnostics={() => setDiagnosticOpen(true)}
               onRunDiagnostics={quickDiagnosticCheck}
               diagnosticSummary={getDiagnosticSummary()}
-              // Add config actions to control panel
               extraActions={
                 <div className="flex gap-2">
                   <button
@@ -620,26 +901,62 @@ const MininetVisualizer = () => {
                     Configure Nodes
                   </button>
                   <button
-                    onClick={() => handleOpenConfigForNode(null, 'controller')}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    onClick={handleOpenStorageManager}
+                    className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                   >
-                    <Server size={16} />
-                    Controller Config
+                    <Database size={16} />
+                    Storage
+                  </button>
+                  <button
+                    onClick={handleOpenPerformanceManager}
+                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition-colors"
+                  >
+                    <Activity size={16} />
+                    Performance
                   </button>
                 </div>
               }
+              // Live topology handlers for builder
+              onAddNode={addTopologyNode}
+              onRemoveNode={removeTopologyNode}
+              onAddLink={addTopologyLink}
+              onRemoveLink={removeTopologyLink}
+              // Property update handlers
+              onUpdateNodeIP={updateNodeIP}
+              onUpdateLinkBandwidth={updateLinkBandwidth}
+              onUpdateLinkStatus={updateLinkStatus}
+              onUpdateControllerPort={updateControllerPort}
+              onRefreshTopology={refreshTopology}
+              fetchTopology={fetchTopology}
             />
           </div>
 
-          {/* Enhanced Diagnostic Widget with Configuration Links */}
+          {/* Sidebar Widgets */}
           <div className="lg:col-span-1">
             {diagnosticWidgetVisible && (
               <div className="space-y-4">
+                {/* Diagnostic Widget */}
                 <DiagnosticWidget
                   diagnosticSummary={getDiagnosticSummary()}
                   onOpenDiagnostics={() => setDiagnosticOpen(true)}
                   onRunQuickCheck={quickDiagnosticCheck}
                   loading={diagnosticLoading.health}
+                />
+
+                {/* Performance Widget */}
+                <PerformanceWidget
+                  apiCall={apiCall}
+                  addLog={addLog}
+                  onOpenPerformanceManager={handleOpenPerformanceManager}
+                  networkStatus={networkStatus}
+                  topology={topology}
+                  className="hover:shadow-md transition-shadow"
+                />
+
+                {/* Simulation Snapshots Widget */}
+                <SnapshotsWidget
+                  onOpenSnapshots={() => setSnapshotsOpen(true)}
+                  className="hover:shadow-md transition-shadow"
                 />
 
                 {/* Quick Configuration Widget */}
@@ -696,7 +1013,9 @@ const MininetVisualizer = () => {
           </div>
         </div>
 
+        {/* Main Content Grid */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* Network Visualization */}
           <NetworkVisualization
             topology={topology}
             networkStatus={networkStatus}
@@ -714,7 +1033,15 @@ const MininetVisualizer = () => {
             controllerStats={controllerStats}
             ryuApp={ryuApp}
             formatBytes={formatBytes}
+            controllerType={controllerType}
+            setControllerType={setControllerType}
+            CONTROLLER_TYPES={CONTROLLER_TYPES}
+            SWITCH_TYPES={SWITCH_TYPES}
             createNetwork={createNetwork}
+            onAddNode={addTopologyNode}
+            onRemoveNode={removeTopologyNode}
+            onAddLink={addTopologyLink}
+            onRemoveLink={removeTopologyLink}
             pingResults={pingResults}
             onExportTopology={() => exportTopologyConfig('dot')}
             onGetVisualizationData={getVisualizationData}
@@ -723,9 +1050,12 @@ const MininetVisualizer = () => {
             onOpenConfig={() => setShowConfigModal(true)}
             onConfigureNode={(node) => handleOpenConfigForNode(node, node.type)}
             onNodeDoubleClick={(node) => handleOpenConfigForNode(node, node.type)}
+            onOpenPerformanceManager={handleOpenPerformanceManager}
           />
 
+          {/* Secondary Content Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Host Terminal */}
             <HostTerminal
               selectedHost={selectedHost}
               setSelectedHost={setSelectedHost}
@@ -742,6 +1072,7 @@ const MininetVisualizer = () => {
               }}
             />
 
+            {/* Statistics Panel */}
             <StatisticsPanel
               networkMetrics={networkMetrics}
               packetTrend={packetTrend}
@@ -760,8 +1091,10 @@ const MininetVisualizer = () => {
               onOpenDiagnostics={() => setDiagnosticOpen(true)}
               onOpenConfig={() => setShowConfigModal(true)}
               onConfigureController={() => handleOpenConfigForNode(null, 'controller')}
+              onOpenPerformanceManager={handleOpenPerformanceManager}
             />
 
+            {/* Activity Monitor */}
             <ActivityMonitor
               logs={logs}
               setLogs={setLogs}
@@ -769,8 +1102,10 @@ const MininetVisualizer = () => {
               autoControllerEnabled={autoControllerEnabled}
               showDiagnosticLogs={true}
               onOpenConfig={() => setShowConfigModal(true)}
+              onOpenPerformanceManager={handleOpenPerformanceManager}
             />
 
+            {/* Performance Chart */}
             {metricsHistory.length > 5 && (
               <PerformanceChart
                 metricsHistory={metricsHistory}
@@ -778,11 +1113,32 @@ const MininetVisualizer = () => {
                 networkMode={topology.controllers?.length > 0 ? 'OpenFlow' : 'Learning Bridge'}
                 diagnosticData={diagnosticData.historicalPings || []}
                 onOpenConfig={() => setShowConfigModal(true)}
+                onOpenPerformanceManager={handleOpenPerformanceManager}
               />
             )}
+
+            {/* Simulation Snapshots Card */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+              <div className="p-4 border-b border-gray-200">
+                <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                  <Database className="w-5 h-5 text-orange-600" />
+                  Simulation Snapshots
+                </h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  Quick access to snapshot management
+                </p>
+              </div>
+              <div className="p-4">
+                <SnapshotsWidget
+                  onOpenSnapshots={() => setSnapshotsOpen(true)}
+                  className="border-0 shadow-none p-0"
+                />
+              </div>
+            </div>
           </div>
         </div>
 
+        {/* Flow Statistics */}
         <FlowStatistics
           flowStats={flowStats}
           controllerStats={controllerStats}
@@ -810,10 +1166,33 @@ const MininetVisualizer = () => {
             const switchNode = topology.nodes.find(n => n.id === switchId && n.type === 'switch');
             if (switchNode) handleOpenConfigForNode(switchNode, 'switch');
           }}
+          onOpenPerformanceManager={handleOpenPerformanceManager}
         />
       </main>
 
-      {/* Scrollable Configuration Modal */}
+      {/* ========================================================================== */}
+      {/* MODALS */}
+      {/* ========================================================================== */}
+
+      {/* Performance Manager Modal */}
+      <PerformanceManager
+        isOpen={showPerformanceManager}
+        onClose={handleClosePerformanceManager}
+        apiCall={apiCall}
+        addLog={addLog}
+        networkStatus={networkStatus}
+        topology={topology}
+        minimized={performanceManagerMinimized}
+        // Enhanced performance functions
+        fetchPerformanceMetrics={fetchPerformanceMetrics}
+        runPerformanceTest={runPerformanceTest}
+        generatePerformanceReport={generatePerformanceReport}
+        checkNetworkHealth={checkPerformanceHealth}
+        getBandwidthUtilization={getBandwidthUtilization}
+        measureLatency={measureLatency}
+      />
+
+      {/* Network Configuration Modal */}
       {showConfigModal && (
         <div className="fixed inset-0 bg-black/30 bg-opacity-50 z-50 flex items-start justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl my-8 flex flex-col max-h-[calc(100vh-4rem)]">
@@ -833,8 +1212,37 @@ const MininetVisualizer = () => {
               stopController={stopController}
               restartController={restartController}
               switchControllerApp={switchControllerApp}
+              switchControllerType={switchControllerType}
               availableApps={availableApps}
               controllerConfig={controllerConfig}
+              controllerType={controllerType}
+              setControllerType={setControllerType}
+              setControllerApp={setRyuApp}
+              CONTROLLER_TYPES={CONTROLLER_TYPES}
+              SWITCH_TYPES={SWITCH_TYPES}
+              // Switch management functions
+              createSwitch={createSwitch}
+              configureSwitch={configureSwitch}
+              deleteSwitch={deleteSwitch}
+              addSwitchFlow={addSwitchFlow}
+              deleteSwitchFlows={deleteSwitchFlows}
+              configureP4Program={configureP4Program}
+              // Performance monitoring functions
+              runPerformanceTest={runPerformanceTest}
+              generatePerformanceReport={generatePerformanceReport}
+              measureLatency={measureLatency}
+              // Snapshot management functions
+              createSnapshot={createSnapshot}
+              restoreSnapshot={restoreSnapshot}
+              deleteSnapshot={deleteSnapshot}
+              exportSnapshot={exportSnapshot}
+              // Storage management functions
+              saveTopologyToDB={saveTopologyToDB}
+              loadTopologyFromDB={loadTopologyFromDB}
+              deleteTopologyFromDB={deleteTopologyFromDB}
+              saveConfiguration={saveConfiguration}
+              loadConfiguration={loadConfiguration}
+              deleteConfiguration={deleteConfiguration}
               onNetworkChange={() => {
                 fetchStatus();
                 fetchTopology();
@@ -849,6 +1257,15 @@ const MininetVisualizer = () => {
               compactMode={true}
               hideHeader={true}
               showQuickActions={true}
+              // Add incremental topology operation functions
+              onAddNode={addTopologyNode}
+              onRemoveNode={removeTopologyNode}
+              onAddLink={addTopologyLink}
+              onRemoveLink={removeTopologyLink}
+              // Creation functions
+              createNetwork={baseCreateNetwork}
+              createCustomTopology={createCustomTopology}
+              createPredefinedTopology={createPredefinedTopology}
             />
           </div>
         </div>
@@ -882,28 +1299,40 @@ const MininetVisualizer = () => {
           setDiagnosticOpen(false);
           setTimeout(() => handleOpenConfigForNode(node, node.type), 300);
         }}
+        onOpenPerformanceManager={() => {
+          setDiagnosticOpen(false);
+          setTimeout(handleOpenPerformanceManager, 300);
+        }}
       />
 
-      {/* Enhanced Status Footer with Configuration Links */}
+      {/* ========================================================================== */}
+      {/* FOOTER */}
+      {/* ========================================================================== */}
+
       <footer className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-sm border-t border-gray-200 px-4 py-2 z-40">
         <div className="flex items-center justify-between text-xs text-gray-600">
           <div className="flex items-center gap-4">
+            {/* API Status */}
             <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full status-indicator ${connectionStatus === 'connected' ? 'bg-green-500 active' :
-                  connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'
-                }`} />
+              <div className={`w-2 h-2 rounded-full status-indicator ${
+                connectionStatus === 'connected' ? 'bg-green-500 active' :
+                connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'
+              }`} />
               <span>API {connectionStatus}</span>
             </div>
 
+            {/* Network Status */}
             <div className="flex items-center gap-2">
-              <Wifi className="w-3 h-3" />
+              {networkStatus.running ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
               <span>Network {networkStatus.running ? 'Active' : 'Inactive'}</span>
             </div>
 
+            {/* Controller Status */}
             {topology.controllers?.length > 0 && (
               <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full status-indicator ${controllerStatus.running ? 'bg-blue-500 active' : 'bg-gray-400'
-                  }`} />
+                <div className={`w-2 h-2 rounded-full status-indicator ${
+                  controllerStatus.running ? 'bg-blue-500 active' : 'bg-gray-400'
+                }`} />
                 <span>Controller {controllerStatus.running ? 'Running' : 'Stopped'}</span>
               </div>
             )}
@@ -919,15 +1348,27 @@ const MininetVisualizer = () => {
               </button>
             </div>
 
+            {/* Performance Status */}
+            <div className="flex items-center gap-2">
+              <Activity className="w-3 h-3" />
+              <button
+                onClick={handleOpenPerformanceManager}
+                className="hover:text-blue-600 underline transition-colors"
+              >
+                Performance Manager
+              </button>
+            </div>
+
             {/* Diagnostic Status */}
             {(() => {
               const summary = getDiagnosticSummary();
               if (summary.hasData) {
                 return (
                   <div className="flex items-center gap-2 cursor-pointer" onClick={() => setDiagnosticOpen(true)}>
-                    <div className={`w-2 h-2 rounded-full ${summary.overallStatus === 'healthy' ? 'bg-green-500' :
-                        summary.overallStatus === 'warning' ? 'bg-yellow-500' : 'bg-red-500'
-                      }`} />
+                    <div className={`w-2 h-2 rounded-full ${
+                      summary.overallStatus === 'healthy' ? 'bg-green-500' :
+                      summary.overallStatus === 'warning' ? 'bg-yellow-500' : 'bg-red-500'
+                    }`} />
                     <span>Health: {summary.overallStatus}</span>
                     {summary.issuesCount > 0 && (
                       <span className="bg-red-100 text-red-600 px-1 rounded text-xs notification-badge">
@@ -940,6 +1381,7 @@ const MininetVisualizer = () => {
               return null;
             })()}
 
+            {/* Auto-Controller Indicator */}
             {autoControllerEnabled && (
               <div className="flex items-center gap-1 text-blue-600">
                 <span>🤖</span>
@@ -956,11 +1398,11 @@ const MininetVisualizer = () => {
               <span>Uptime: {networkMetrics.uptime}</span>
             )}
 
-            {/* Quick access buttons */}
+            {/* Quick Access Buttons */}
             <button
               onClick={() => setDiagnosticOpen(true)}
               className="text-blue-600 hover:text-blue-800 underline flex items-center gap-1 transition-colors"
-              title="Open Network Diagnostics"
+              title="Open Network Diagnostics (Ctrl+D)"
             >
               <Activity className="w-3 h-3" />
               Diagnostics
@@ -969,28 +1411,97 @@ const MininetVisualizer = () => {
             <button
               onClick={() => setShowConfigModal(true)}
               className="text-indigo-600 hover:text-indigo-800 underline flex items-center gap-1 transition-colors"
-              title="Open Network Configuration"
+              title="Open Network Configuration (Ctrl+Shift+C)"
             >
               <Settings className="w-3 h-3" />
               Configure
             </button>
+
+            <button
+              onClick={handleOpenPerformanceManager}
+              className="text-purple-600 hover:text-purple-800 underline flex items-center gap-1 transition-colors"
+              title="Open Performance Manager (Ctrl+P)"
+            >
+              <Activity className="w-3 h-3" />
+              Performance
+            </button>
+
+            <button
+              onClick={() => setSnapshotsOpen(true)}
+              className="text-orange-600 hover:text-orange-800 underline flex items-center gap-1 transition-colors"
+              title="Open Simulation Snapshots (Ctrl+S)"
+            >
+              <Database className="w-3 h-3" />
+              Snapshots
+            </button>
+            
+            <div className={`px-2 py-1 text-xs rounded ml-2 ${snapshotsOpen ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+              Snapshots: {snapshotsOpen ? 'OPEN' : 'CLOSED'}
+            </div>
           </div>
         </div>
       </footer>
 
-      {/* Loading Overlay for Configuration Operations */}
-      {loading && showConfigModal && (
+      {/* Storage Manager Modal */}
+      {showStorageManager && (
+        <StorageManager
+          onClose={() => setShowStorageManager(false)}
+          currentTopology={topology}
+          currentConfigurations={{}}
+          onLoadTopology={handleLoadTopology}
+          onLoadConfiguration={handleLoadConfiguration}
+          // Enhanced storage functions
+          fetchTopologies={fetchStoredTopologies}
+          saveTopology={saveTopologyToDB}
+          loadTopology={loadTopologyFromDB}
+          deleteTopology={deleteTopologyFromDB}
+          fetchConfigurations={fetchConfigurations}
+          saveConfiguration={saveConfiguration}
+          loadConfiguration={loadConfiguration}
+          deleteConfiguration={deleteConfiguration}
+          exportData={exportData}
+          importData={importData}
+          searchData={searchData}
+        />
+      )}
+
+
+
+      {/* Simulation Snapshots Panel */}
+      <SimulationSnapshots
+        isOpen={snapshotsOpen}
+        onClose={() => setSnapshotsOpen(false)}
+        topology={topology}
+        networkStatus={networkStatus}
+        controllerStatus={controllerStatus}
+        // Enhanced snapshot functions
+        fetchSnapshots={fetchSnapshots}
+        createSnapshot={createSnapshot}
+        restoreSnapshot={restoreSnapshot}
+        deleteSnapshot={deleteSnapshot}
+        exportSnapshot={exportSnapshot}
+        importSnapshot={importSnapshot}
+        getSnapshotDetails={getSnapshotDetails}
+        compareSnapshots={compareSnapshots}
+      />
+
+      {/* Loading Overlay */}
+      {loading && (showConfigModal || showPerformanceManager || showStorageManager || snapshotsOpen) && (
         <div className="fixed inset-0 bg-black bg-opacity-30 z-60 flex items-center justify-center">
           <div className="bg-white rounded-lg p-6 flex items-center gap-3 shadow-2xl">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
-            <span className="text-gray-700 font-medium">Applying Configuration...</span>
+            <span className="text-gray-700 font-medium">
+              {showPerformanceManager ? 'Loading Performance Data...' : 
+               showStorageManager ? 'Loading Storage Data...' : 
+               snapshotsOpen ? 'Loading Snapshots...' : 'Applying Configuration...'}
+            </span>
           </div>
         </div>
       )}
 
-      {/* Enhanced Styles with Configuration-specific CSS */}
+      {/* Enhanced Styles */}
       <style jsx>{`
-        /* Base animations and transitions */
+        /* Custom Scrollbar */
         .custom-scrollbar::-webkit-scrollbar {
           width: 8px;
         }
@@ -1006,136 +1517,17 @@ const MininetVisualizer = () => {
           background: #94a3b8;
         }
         
-        /* Configuration Modal Styles */
-        .modal-backdrop {
-          backdrop-filter: blur(8px);
-          background: rgba(0, 0, 0, 0.6);
+        /* Animations */
+        @keyframes fade-in {
+          from { opacity: 0; transform: translateY(-10px); }
+          to { opacity: 1; transform: translateY(0); }
         }
         
-        .config-modal {
-          animation: modalSlideIn 0.3s ease-out;
-          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        .animate-fade-in {
+          animation: fade-in 0.3s ease-out;
         }
         
-        @keyframes modalSlideIn {
-          from {
-            opacity: 0;
-            transform: scale(0.95) translateY(-10px);
-          }
-          to {
-            opacity: 1;
-            transform: scale(1) translateY(0);
-          }
-        }
-        
-        /* Configuration Button Styles */
-        .config-button {
-          transition: all 0.2s ease-in-out;
-          position: relative;
-          overflow: hidden;
-        }
-        
-        .config-button::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: -100%;
-          width: 100%;
-          height: 100%;
-          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-          transition: left 0.5s;
-        }
-        
-        .config-button:hover::before {
-          left: 100%;
-        }
-        
-        /* Quick Configuration Widget */
-        .config-widget {
-          transition: all 0.3s ease-in-out;
-          transform: translateY(0);
-        }
-        
-        .config-widget:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-        
-        /* Controller warning animation */
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
-        }
-        
-        .controller-warning {
-          animation: pulse 2s ease-in-out infinite;
-        }
-        
-        /* Status transitions */
-        .status-transition {
-          transition: all 0.3s ease-in-out;
-        }
-        
-        /* Loading shimmer effect */
-        .loading-shimmer {
-          background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-          background-size: 200% 100%;
-          animation: shimmer 1.5s infinite;
-        }
-        
-        @keyframes shimmer {
-          0% { background-position: -200% 0; }
-          100% { background-position: 200% 0; }
-        }
-        
-        /* Network mode indicators */
-        .openflow-mode {
-          border-left: 4px solid #3b82f6;
-        }
-        
-        .bridge-mode {
-          border-left: 4px solid #10b981;
-        }
-        
-        .warning-mode {
-          border-left: 4px solid #f59e0b;
-        }
-        
-        /* Diagnostic-specific animations */
-        @keyframes diagnostic-pulse {
-          0%, 100% { 
-            background-color: rgb(239 68 68); 
-            transform: scale(1);
-          }
-          50% { 
-            background-color: rgb(220 38 38); 
-            transform: scale(1.05);
-          }
-        }
-        
-        .diagnostic-alert {
-          animation: diagnostic-pulse 2s ease-in-out infinite;
-        }
-        
-        .diagnostic-badge {
-          position: relative;
-          overflow: visible;
-        }
-        
-        .diagnostic-badge::after {
-          content: '';
-          position: absolute;
-          top: -2px;
-          right: -2px;
-          width: 8px;
-          height: 8px;
-          background: rgb(239 68 68);
-          border: 2px solid white;
-          border-radius: 50%;
-          animation: pulse 2s ease-in-out infinite;
-        }
-        
-        /* Status indicator animations */
+        /* Status Indicators */
         .status-indicator {
           position: relative;
         }
@@ -1164,7 +1556,7 @@ const MininetVisualizer = () => {
           }
         }
         
-        /* Notification badges */
+        /* Notification Badge */
         .notification-badge {
           animation: badgeBounce 0.6s ease-in-out;
         }
@@ -1181,220 +1573,13 @@ const MininetVisualizer = () => {
           }
         }
         
-        /* Configuration-specific styles */
-        .quick-config {
-          background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
-          border: 1px solid #c7d2fe;
-        }
-        
-        .quick-config:hover {
-          background: linear-gradient(135deg, #ddd6fe 0%, #c4b5fd 100%);
-          border-color: #a78bfa;
-        }
-        
-        /* Configuration modal header gradient */
-        .config-header {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-        
-        /* Success/Error flashes */
-        .success-flash {
-          animation: successFlash 1s ease-in-out;
-        }
-        
-        .error-flash {
-          animation: errorFlash 1s ease-in-out;
-        }
-        
-        @keyframes successFlash {
-          0%, 100% { background-color: transparent; }
-          50% { background-color: rgba(34, 197, 94, 0.1); }
-        }
-        
-        @keyframes errorFlash {
-          0%, 100% { background-color: transparent; }
-          50% { background-color: rgba(239, 68, 68, 0.1); }
-        }
-        
-        /* Configuration form animations */
-        .config-form-section {
-          transition: all 0.3s ease-in-out;
-        }
-        
-        .config-form-section:hover {
-          background: rgba(0, 0, 0, 0.02);
-        }
-        
-        /* Loading skeleton for configuration */
-        .config-skeleton {
-          background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-          background-size: 200% 100%;
-          animation: shimmer 1.5s infinite;
-        }
-        
-        /* Tab animations */
-        .config-tab {
-          transition: all 0.2s ease-in-out;
-          position: relative;
-        }
-        
-        .config-tab.active {
-          background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-          transform: translateX(4px);
-        }
-        
-        .config-tab:hover:not(.active) {
-          transform: translateX(2px);
-          background: rgba(0, 0, 0, 0.02);
-        }
-        
-        /* Progress indicators */
-        .config-progress {
-          background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%);
-          animation: progressSlide 2s ease-in-out infinite;
-        }
-        
-        @keyframes progressSlide {
-          0%, 100% { width: 0%; }
-          50% { width: 100%; }
-        }
-        
-        /* Widget glow effects */
-        .config-widget-glow {
-          box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
-          border: 1px solid rgba(59, 130, 246, 0.5);
-        }
-        
-        /* Button hover effects */
-        .config-button-primary {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          transition: all 0.3s ease;
-        }
-        
-        .config-button-primary:hover {
-          background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%);
-          transform: translateY(-1px);
-          box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
-        }
-        
-        /* Responsive design */
-        @media (max-width: 768px) {
-          .config-modal {
-            margin: 0.5rem;
-            width: calc(100% - 1rem);
-            height: calc(100% - 1rem);
-          }
-          
-          .config-widget {
-            margin-bottom: 1rem;
-          }
-        }
-        
-        @media (max-width: 640px) {
-          .config-modal {
-            margin: 0;
-            width: 100%;
-            height: 100%;
-            border-radius: 0;
-          }
-        }
-        
-        /* Dark mode support */
-        @media (prefers-color-scheme: dark) {
-          .config-modal {
-            background: #1f2937;
-            color: #f9fafb;
-          }
-          
-          .config-widget {
-            background: #374151;
-            border-color: #4b5563;
-          }
-          
-          .modal-backdrop {
-            background: rgba(0, 0, 0, 0.8);
-          }
-        }
-        
-        /* High contrast mode */
-        @media (prefers-contrast: high) {
-          .config-button {
-            border: 2px solid currentColor;
-          }
-          
-          .status-indicator {
-            border: 2px solid #000;
-          }
-          
-          .config-modal {
-            border: 3px solid #000;
-          }
-        }
-        
-        /* Reduced motion preferences */
+        /* Reduced Motion */
         @media (prefers-reduced-motion: reduce) {
           * {
             animation-duration: 0.01ms !important;
             animation-iteration-count: 1 !important;
             transition-duration: 0.01ms !important;
           }
-          
-          .config-modal {
-            animation: none;
-          }
-          
-          .config-widget {
-            transition: none;
-          }
-          
-          .config-button::before {
-            transition: none;
-          }
-        }
-        
-        /* Print styles */
-        @media print {
-          .config-modal {
-            position: static;
-            width: 100%;
-            height: auto;
-            box-shadow: none;
-            border: 1px solid #000;
-          }
-          
-          .modal-backdrop {
-            display: none;
-          }
-        }
-        
-        /* Focus styles for accessibility */
-        .config-button:focus {
-          outline: 2px solid #4f46e5;
-          outline-offset: 2px;
-        }
-        
-        .config-modal:focus {
-          outline: none;
-        }
-        
-        /* Custom scrollbar for modal content */
-        .config-modal .custom-scrollbar::-webkit-scrollbar {
-          width: 12px;
-        }
-        
-        .config-modal .custom-scrollbar::-webkit-scrollbar-track {
-          background: #f8fafc;
-          border-radius: 6px;
-        }
-        
-        .config-modal .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #cbd5e1;
-          border-radius: 6px;
-          border: 2px solid #f8fafc;
-        }
-        
-        .config-modal .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #94a3b8;
         }
       `}</style>
     </div>

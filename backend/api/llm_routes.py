@@ -19,7 +19,14 @@ def get_llm_service():
     """Get or create the LLM service instance"""
     global _llm_service
     if _llm_service is None:
+        logger.info("Creating new LLM service instance")
         _llm_service = LLMManager()
+        # Try to initialize from active configuration
+        success = _llm_service.initialize_from_active_config()
+        if success:
+            logger.info("LLM service initialized from active configuration")
+        else:
+            logger.warning("Failed to initialize LLM service from active configuration")
     return _llm_service
 
 
@@ -27,6 +34,7 @@ def get_topology_llm_service():
     """Get or create the topology LLM service instance"""
     global _topology_llm_service
     if _topology_llm_service is None:
+        logger.info("Creating new topology LLM service instance")
         _topology_llm_service = TopologyLLMService(get_llm_service())
     return _topology_llm_service
 
@@ -64,26 +72,32 @@ def switch_llm_service():
         data = request.get_json() or {}
         service_type = data.get('service_type', 'ollama')
         service_kwargs = data.get('service_kwargs', {})
-        
+
+        logger.info(f"Switching to {service_type} service with kwargs: {list(service_kwargs.keys())}")
+
         llm_service = get_llm_service()
         success = llm_service.switch_service(service_type, **service_kwargs)
-        
+
         if success:
             # Update the topology service with the new LLM service
             global _topology_llm_service
             _topology_llm_service = TopologyLLMService(llm_service)
-            
+
+            service_info = llm_service.get_service_info()
+            logger.info(f"Successfully switched to {service_type} service: {service_info}")
+
             return jsonify({
                 'success': True,
                 'message': f'Switched to {service_type} service',
-                'service_info': llm_service.get_service_info()
+                'service_info': service_info
             })
         else:
+            logger.error(f"Failed to switch to {service_type} service")
             return jsonify({
                 'success': False,
                 'error': f'Failed to switch to {service_type} service'
             }), 400
-            
+
     except Exception as e:
         logger.error(f"Error switching LLM service: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -351,4 +365,83 @@ def validate_generated_topology():
         return jsonify({
             'success': False,
             'error': f'Validation failed: {str(e)}'
+        }), 500
+
+
+@llm_bp.route('/reload-config', methods=['POST'])
+@log_api_request
+def reload_llm_config():
+    """Reload LLM service from active configuration"""
+    try:
+        llm_service = get_llm_service()
+        logger.info("Reloading LLM configuration...")
+        success = llm_service.reload_from_config()
+
+        if success:
+            logger.info("LLM configuration reloaded successfully")
+            service_info = llm_service.get_service_info()
+            logger.info(f"New service info: {service_info}")
+            return jsonify({
+                'success': True,
+                'message': 'LLM service reloaded from configuration',
+                'service_info': service_info
+            })
+        else:
+            logger.error("Failed to reload LLM configuration")
+            return jsonify({
+                'success': False,
+                'error': 'Failed to reload from configuration'
+            }), 400
+
+    except Exception as e:
+        logger.error(f"Error reloading LLM configuration: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Reload failed: {str(e)}'
+        }), 500
+
+
+@llm_bp.route('/initialize-from-config', methods=['POST'])
+@log_api_request
+def initialize_from_config():
+    """Initialize LLM service from a specific configuration"""
+    try:
+        data = request.get_json() or {}
+        config_id = data.get('config_id')
+
+        if not config_id:
+            return jsonify({
+                'success': False,
+                'error': 'config_id is required'
+            }), 400
+
+        logger.info(f"Initializing LLM service from configuration: {config_id}")
+        llm_service = get_llm_service()
+        success = llm_service.initialize_from_config(config_id)
+
+        if success:
+            # Update the topology service with the new LLM service
+            global _topology_llm_service
+            _topology_llm_service = TopologyLLMService(llm_service)
+
+            service_info = llm_service.get_service_info()
+            logger.info(f"Successfully initialized LLM service: {service_info}")
+
+            return jsonify({
+                'success': True,
+                'message': 'LLM service initialized from configuration',
+                'service_info': service_info
+            })
+        else:
+            logger.error(f"Failed to initialize LLM service from configuration: {config_id}")
+            return jsonify({
+                'success': False,
+                'error': 'Failed to initialize from configuration'
+            }), 400
+
+    except Exception as e:
+        logger.error(f"Error initializing from configuration: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Initialization failed: {str(e)}'
         }), 500

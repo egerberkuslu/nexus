@@ -2,7 +2,8 @@
 import React, { useEffect, useState } from 'react';
 import { 
   Monitor, Server, Route, Settings, Activity,
-  CheckCircle, AlertCircle, Network, RefreshCw, ChevronRight, ChevronDown
+  CheckCircle, AlertCircle, Network, RefreshCw, ChevronRight, ChevronDown,
+  Plus, Trash2, Link as LinkIcon, Info
 } from 'lucide-react';
 import ApplyConfigurationPanel from './ApplyConfigurationPanel';
 
@@ -84,7 +85,16 @@ export const OverviewTab = ({
   apiCall,
   showMessage,
   loading,
-  setLoading
+  setLoading,
+  // Add new props for incremental operations
+  onAddNode,
+  onRemoveNode,
+  onAddLink,
+  onRemoveLink,
+  // Creation helpers
+  createNetwork,
+  createCustomTopology,
+  createPredefinedTopology
 }) => {
   // ---------------------- STATUS STATES ----------------------
   const [networkStatus, setNetworkStatus] = useState({ 
@@ -98,10 +108,151 @@ export const OverviewTab = ({
     bandwidth_mbps: 0, 
     latency_ms: 0, 
     active_flows: 0, 
-    packets_transferred: 0, 
     total_bytes: 0,
-    total_interfaces: 0
+    packets_transferred: 0
   });
+
+  // ---------------------- LIVE TOPOLOGY EDITOR STATES ----------------------
+  const [showAddNodeModal, setShowAddNodeModal] = useState(false);
+  const [showAddLinkModal, setShowAddLinkModal] = useState(false);
+  const [newNodeType, setNewNodeType] = useState('host');
+  const [newNodeId, setNewNodeId] = useState('');
+  const [newNodeIP, setNewNodeIP] = useState('');
+  const [newLinkSource, setNewLinkSource] = useState('');
+  const [newLinkTarget, setNewLinkTarget] = useState('');
+
+  // ---------------------- LIVE TOPOLOGY EDITOR HANDLERS ----------------------
+  const handleQuickAddNode = async (type) => {
+    if (!onAddNode) {
+      showMessage('Add node functionality not available', 'error');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const existingNodes = topology?.nodes?.filter(n => n.type === type) || [];
+      const nodeId = `${type === 'host' ? 'h' : type === 'switch' ? 's' : type === 'router' ? 'r' : 'c'}${existingNodes.length + 1}`;
+      
+      const result = await onAddNode({
+        id: nodeId,
+        type: type,
+        ip: type === 'host' ? `10.0.0.${existingNodes.length + 1}` : undefined
+      });
+
+      if (result.success) {
+        showMessage(`Added ${type} "${nodeId}" successfully`, 'success');
+        setNewNodeId('');
+        setNewNodeType('host');
+      } else {
+        showMessage(`Failed to add ${type}: ${result.error}`, 'error');
+      }
+    } catch (error) {
+      showMessage(`Error adding ${type}: ${error.message}`, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddNode = async () => {
+    if (!onAddNode || !newNodeId.trim()) {
+      showMessage('Please enter a node ID', 'error');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const nodeData = {
+        id: newNodeId.trim(),
+        type: newNodeType
+      };
+
+      // Add IP address if specified for hosts
+      if (newNodeType === 'host') {
+        if (newNodeIP.trim()) {
+          nodeData.ip = newNodeIP.trim();
+        } else {
+          nodeData.ip = 'auto'; // Auto-assign IP
+        }
+      }
+
+      const result = await onAddNode(nodeData);
+
+      if (result.success) {
+        showMessage(`Added ${newNodeType} "${newNodeId}" successfully`, 'success');
+        setShowAddNodeModal(false);
+        setNewNodeId('');
+        setNewNodeIP('');
+        setNewNodeType('host');
+      } else {
+        showMessage(`Failed to add ${newNodeType}: ${result.error}`, 'error');
+      }
+    } catch (error) {
+      showMessage(`Error adding ${newNodeType}: ${error.message}`, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRemoveNode = async (nodeId) => {
+    if (!onRemoveNode) {
+      showMessage('Remove node functionality not available', 'error');
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to remove ${nodeId}? This will also remove all its connections.`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const result = await onRemoveNode(nodeId);
+
+      if (result.success) {
+        showMessage(`Removed ${nodeId} successfully`, 'success');
+        onNodeSelect(null); // Clear selection
+      } else {
+        showMessage(`Failed to remove ${nodeId}: ${result.error}`, 'error');
+      }
+    } catch (error) {
+      showMessage(`Error removing ${nodeId}: ${error.message}`, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddLink = async () => {
+    if (!onAddLink || !newLinkSource || !newLinkTarget) {
+      showMessage('Please select both source and target nodes', 'error');
+      return;
+    }
+
+    if (newLinkSource === newLinkTarget) {
+      showMessage('Source and target nodes must be different', 'error');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const result = await onAddLink({
+        source: newLinkSource,
+        target: newLinkTarget,
+        bandwidth: '1G'
+      });
+
+      if (result.success) {
+        showMessage(`Added link between ${newLinkSource} and ${newLinkTarget} successfully`, 'success');
+        setShowAddLinkModal(false);
+        setNewLinkSource('');
+        setNewLinkTarget('');
+      } else {
+        showMessage(`Failed to add link: ${result.error}`, 'error');
+      }
+    } catch (error) {
+      showMessage(`Error adding link: ${error.message}`, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
   
   const [controllerStatus, setControllerStatus] = useState({ 
     running: false, 
@@ -422,6 +573,293 @@ export const OverviewTab = ({
           </div>
         )}
       </ConfigSection>
+
+      {/* Live Topology Editor or Creation depending on network state */}
+      {networkStatus.running ? (
+        <>
+          {/* Live Topology Editor */}
+          <ConfigSection 
+            title="Live Topology Editor" 
+            icon={Network} 
+            expanded={true}
+            actions={
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowAddNodeModal(true)}
+                  className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Plus size={16} />
+                  Add Node
+                </button>
+                <button
+                  onClick={() => setShowAddLinkModal(true)}
+                  className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  <LinkIcon size={16} />
+                  Add Link
+                </button>
+              </div>
+            }
+          >
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 bg-blue-100 rounded-lg">
+                    <Info size={20} className="text-blue-600" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-medium text-blue-900 mb-1">Real-time Topology Updates</h4>
+                    <p className="text-sm text-blue-700">
+                      Add or remove network devices and connections while the network is running. 
+                      Changes are applied immediately without interrupting network operations.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Actions */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white border border-gray-200 rounded-lg p-4">
+                  <h5 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
+                    <Plus size={16} className="text-blue-600" />
+                    Quick Add Node
+                  </h5>
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => handleQuickAddNode('host')}
+                        className="p-3 text-sm font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
+                      >
+                        + Host
+                      </button>
+                      <button
+                        onClick={() => handleQuickAddNode('switch')}
+                        className="p-3 text-sm font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
+                      >
+                        + Switch
+                      </button>
+                      <button
+                        onClick={() => handleQuickAddNode('router')}
+                        className="p-3 text-sm font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
+                      >
+                        + Router
+                      </button>
+                      <button
+                        onClick={() => handleQuickAddNode('controller')}
+                        className="p-3 text-sm font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
+                      >
+                        + Controller
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-lg p-4">
+                  <h5 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
+                    <Trash2 size={16} className="text-red-600" />
+                    Remove Elements
+                  </h5>
+                  <div className="space-y-3">
+                    <p className="text-sm text-gray-600">
+                      Select a node or link in the topology view above, then click the delete button to remove it.
+                    </p>
+                    {selectedNode && (
+                      <button
+                        onClick={() => handleRemoveNode(selectedNode.id)}
+                        className="w-full p-3 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Trash2 size={16} />
+                        Remove {selectedNode.type} "{selectedNode.id}"
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </ConfigSection>
+        </>
+      ) : (
+        <>
+          {/* Network Creation Panel when stopped or not created */}
+          <ConfigSection 
+            title="Create a Network Topology" 
+            icon={Network} 
+            expanded={true}
+          >
+            <div className="space-y-4">
+              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 bg-yellow-100 rounded-lg">
+                    <Info size={20} className="text-yellow-700" />
+                  </div>
+                  <div>
+                    <h4 className="font-medium text-yellow-900 mb-1">Network is not running</h4>
+                    <p className="text-sm text-yellow-800">Create and start a topology to begin. You can also open the custom builder to design one before creating.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white border border-gray-200 rounded-lg p-4">
+                  <h5 className="font-medium text-gray-900 mb-3">Quick Create</h5>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => createPredefinedTopology && createPredefinedTopology('simple')}
+                      className="p-3 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+                    >Simple</button>
+                    <button
+                      onClick={() => createPredefinedTopology && createPredefinedTopology('linear')}
+                      className="p-3 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+                    >Linear</button>
+                    <button
+                      onClick={() => createPredefinedTopology && createPredefinedTopology('tree')}
+                      className="p-3 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+                    >Tree</button>
+                    <button
+                      onClick={() => createPredefinedTopology && createPredefinedTopology('star')}
+                      className="p-3 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+                    >Star</button>
+                  </div>
+                  <div className="mt-4">
+                    <button
+                      onClick={() => createNetwork && createNetwork()}
+                      className="w-full p-3 text-sm font-medium text-gray-800 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                    >Create Default</button>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-lg p-4">
+                  <h5 className="font-medium text-gray-900 mb-3">Custom Builder</h5>
+                  <p className="text-sm text-gray-600 mb-3">Open the custom topology builder to design a network, then create it.</p>
+                  <button
+                    onClick={() => setShowAddNodeModal(true)}
+                    className="w-full p-3 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors"
+                  >Open Builder</button>
+                </div>
+              </div>
+            </div>
+          </ConfigSection>
+        </>
+      )}
+
+      {/* Add Node Modal */}
+      {showAddNodeModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-800">Add New Node</h3>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Node Type</label>
+                <select
+                  value={newNodeType}
+                  onChange={(e) => setNewNodeType(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="host">Host</option>
+                  <option value="switch">Switch</option>
+                  <option value="router">Router</option>
+                  <option value="controller">Controller</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Node ID</label>
+                <input
+                  type="text"
+                  value={newNodeId}
+                  onChange={(e) => setNewNodeId(e.target.value)}
+                  placeholder="e.g., h5, s3, r2"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              {/* IP Address input for hosts */}
+              {newNodeType === 'host' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">IP Address</label>
+                  <input
+                    type="text"
+                    value={newNodeIP}
+                    onChange={(e) => setNewNodeIP(e.target.value)}
+                    placeholder="10.0.0.1"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Leave empty for auto-assignment</p>
+                </div>
+              )}
+              <div className="flex items-center gap-3 pt-4">
+                <button
+                  onClick={() => setShowAddNodeModal(false)}
+                  className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddNode}
+                  disabled={!newNodeId.trim()}
+                  className="flex-1 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Add Node
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Link Modal */}
+      {showAddLinkModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-800">Add New Link</h3>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Source Node</label>
+                <select
+                  value={newLinkSource}
+                  onChange={(e) => setNewLinkSource(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">Select source node</option>
+                  {topology?.nodes?.map(node => (
+                    <option key={node.id} value={node.id}>{node.id} ({node.type})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Target Node</label>
+                <select
+                  value={newLinkTarget}
+                  onChange={(e) => setNewLinkTarget(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">Select target node</option>
+                  {topology?.nodes?.map(node => (
+                    <option key={node.id} value={node.id}>{node.id} ({node.type})</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-3 pt-4">
+                <button
+                  onClick={() => setShowAddLinkModal(false)}
+                  className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddLink}
+                  disabled={!newLinkSource || !newLinkTarget || newLinkSource === newLinkTarget}
+                  className="flex-1 px-4 py-2 text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Add Link
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Selected Node Details */}
       {selectedNode && (

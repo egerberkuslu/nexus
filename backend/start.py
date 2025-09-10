@@ -94,8 +94,45 @@ def main():
         # Cleanup function
         def cleanup():
             logger.info("Cleaning up resources...")
-            mininet_mgr.stop_network()
-            subprocess.run(['mn', '-c'], capture_output=True)
+            try:
+                # Stop network if running
+                if mininet_mgr.is_running:
+                    logger.info("Stopping Mininet network...")
+                    mininet_mgr.stop_network()
+                
+                # Stop all controllers
+                logger.info("Stopping all controllers...")
+                mininet_mgr.controller_factory.stop_all_controllers()
+                
+                # Force reset controller states
+                logger.info("Resetting controller states...")
+                mininet_mgr.controller_factory.reset_controller_states()
+                
+                # Force cleanup of any remaining Mininet processes
+                logger.info("Cleaning up Mininet processes...")
+                subprocess.run(['mn', '-c'], capture_output=True)
+                
+                # Force cleanup of any remaining controller processes
+                logger.info("Cleaning up controller processes...")
+                controller_processes = ['ryu-manager', 'pox.py', 'osken', 'karaf']
+                for process_name in controller_processes:
+                    try:
+                        subprocess.run(['pkill', '-f', process_name], 
+                                      capture_output=True, text=True)
+                    except Exception:
+                        pass
+                
+                logger.info("Cleanup completed successfully - exiting program")
+                
+                # Force exit the program
+                import sys
+                sys.exit(0)
+                
+            except Exception as e:
+                logger.error(f"Error during cleanup: {e}")
+                # Still exit even if cleanup failed
+                import sys
+                sys.exit(1)
         
         # Register cleanup
         import atexit

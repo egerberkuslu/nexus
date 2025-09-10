@@ -313,6 +313,107 @@ class ControllerFactory:
 
         return capabilities
 
+    def stop_all_controllers(self):
+        """Stop all running controllers without deleting them"""
+        stopped_count = 0
+        for controller_type, controller in self.controllers.items():
+            try:
+                # Always try to stop, regardless of is_running state
+                # This ensures we catch controllers that might not be properly tracked
+                logger.info(f"Attempting to stop {controller_type} controller...")
+                
+                # Check if controller has a process running
+                has_process = controller.process is not None and controller.process.poll() is None
+                
+                if controller.is_running or has_process:
+                    logger.info(f"Stopping {controller_type} controller (running: {controller.is_running}, has_process: {has_process})...")
+                    if self.stop_controller(controller_type):
+                        stopped_count += 1
+                        logger.info(f"Successfully stopped {controller_type} controller")
+                    else:
+                        logger.warning(f"Failed to stop {controller_type} controller")
+                else:
+                    logger.debug(f"{controller_type} controller is not running, skipping")
+            except Exception as e:
+                logger.error(f"Error stopping {controller_type}: {e}")
+
+        logger.info(f"Stopped {stopped_count} controllers")
+        
+        # Always try force stop to ensure all processes are killed
+        logger.info("Performing force stop to ensure all controller processes are killed...")
+        self._force_stop_all_controllers()
+        
+        # Final verification
+        remaining_running = [ct for ct, c in self.controllers.items() if c.is_running]
+        if remaining_running:
+            logger.warning(f"Some controllers still marked as running after force stop: {remaining_running}")
+            # Force reset all states
+            for controller_type in remaining_running:
+                controller = self.controllers[controller_type]
+                controller.is_running = False
+                controller.process = None
+                controller.start_time = None
+                logger.info(f"Force reset {controller_type} controller state")
+        else:
+            logger.info("All controllers successfully stopped")
+
+    def _force_stop_all_controllers(self):
+        """Force stop all controllers using system commands"""
+        import subprocess
+        import os
+        
+        try:
+            # Kill any remaining controller processes
+            controller_processes = ['ryu-manager', 'pox.py', 'osken', 'karaf']
+            for process_name in controller_processes:
+                try:
+                    # Find and kill processes
+                    result = subprocess.run(['pkill', '-f', process_name], 
+                                          capture_output=True, text=True)
+                    if result.returncode == 0:
+                        logger.info(f"Force killed {process_name} processes")
+                except Exception as e:
+                    logger.debug(f"Error force killing {process_name}: {e}")
+            
+            # Update controller states
+            for controller in self.controllers.values():
+                controller.is_running = False
+                controller.process = None
+                
+        except Exception as e:
+            logger.error(f"Error during force stop: {e}")
+
+    def reset_controller_states(self):
+        """Reset all controller states to ensure clean state"""
+        logger.info("Resetting all controller states...")
+        for controller_type, controller in self.controllers.items():
+            try:
+                # Force stop if running
+                if controller.is_running:
+                    logger.info(f"Force stopping {controller_type} controller")
+                    controller.stop_controller()
+                
+                # Reset state
+                controller.is_running = False
+                controller.process = None
+                controller.start_time = None
+                logger.debug(f"Reset {controller_type} controller state")
+                
+            except Exception as e:
+                logger.warning(f"Error resetting {controller_type} controller: {e}")
+        
+        # Clear active controller
+        self.active_controller = None
+        logger.info("All controller states reset")
+
+    def get_running_controllers(self) -> List[str]:
+        """Get list of currently running controllers"""
+        running = []
+        for controller_type, controller in self.controllers.items():
+            if controller.is_running:
+                running.append(controller_type)
+        return running
+
     def cleanup(self):
         """Cleanup all controllers"""
         for controller_type in list(self.controllers.keys()):

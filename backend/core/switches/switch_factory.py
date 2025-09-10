@@ -241,6 +241,21 @@ class SwitchFactory:
 
         return switch.list_ports()
 
+    def stop_all_switches(self):
+        """Stop all running switches without deleting them"""
+        logger.info("Stopping all switches...")
+
+        # Stop active switches
+        for switch_id, switch in list(self.active_switches.items()):
+            try:
+                if hasattr(switch, 'stop_switch_process'):
+                    switch.stop_switch_process()
+                logger.info(f"Stopped switch {switch_id}")
+            except Exception as e:
+                logger.error(f"Error stopping switch {switch_id}: {e}")
+
+        logger.info("All switches stopped")
+
     def cleanup_switches(self):
         """Clean up all switches"""
         logger.info("Cleaning up all switches...")

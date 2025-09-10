@@ -5,6 +5,8 @@ Main orchestration class that coordinates all Mininet components
 
 import os
 import time
+import signal
+import atexit
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
 from mininet.net import Mininet
@@ -67,6 +69,69 @@ class MininetManager:
         # Legacy properties for backward compatibility
         self.node_positions = {}
         self.controller_config = []
+        
+        # Register cleanup handlers for graceful shutdown
+        self._register_cleanup_handlers()
+
+    def _register_cleanup_handlers(self):
+        """Register signal handlers and cleanup functions for graceful shutdown"""
+        def signal_handler(signum, frame):
+            self.logger.info(f"Received signal {signum}, cleaning up...")
+            self._emergency_cleanup()
+        
+        def atexit_cleanup():
+            self.logger.info("Python process exiting, cleaning up...")
+            self._emergency_cleanup()
+        
+        # Register signal handlers
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+        
+        # Register atexit handler
+        atexit.register(atexit_cleanup)
+
+    def _emergency_cleanup(self):
+        """Emergency cleanup when process is shutting down"""
+        try:
+            # Stop network if running
+            if self.is_running and self.net:
+                self.logger.info("Emergency stopping network...")
+                self.net.stop()
+                self.is_running = False
+            
+            # Stop all controllers
+            self.logger.info("Emergency stopping all controllers...")
+            self.controller_factory.stop_all_controllers()
+            
+            # Force reset controller states
+            self.logger.info("Emergency resetting controller states...")
+            self.controller_factory.reset_controller_states()
+            
+            # Force cleanup of any remaining processes
+            self.logger.info("Emergency cleaning up processes...")
+            import subprocess
+            subprocess.run(['mn', '-c'], capture_output=True)
+            
+            # Force kill any remaining controller processes
+            controller_processes = ['ryu-manager', 'pox.py', 'osken', 'karaf']
+            for process_name in controller_processes:
+                try:
+                    subprocess.run(['pkill', '-f', process_name], 
+                                  capture_output=True, text=True)
+                except Exception:
+                    pass
+            
+            self.logger.info("Emergency cleanup completed - exiting program")
+            
+            # Force exit the program
+            import sys
+            sys.exit(0)
+            
+        except Exception as e:
+            self.logger.error(f"Error during emergency cleanup: {e}")
+            # Still exit even if cleanup failed
+            import sys
+            sys.exit(1)
 
     @property
     def ryu_controller(self):
@@ -117,15 +182,49 @@ class MininetManager:
         return False
 
     def start_network(self) -> bool:
-        """Start the network with proper initialization"""
+        """Start the network and controllers together"""
         try:
             if not self.net:
                 self.logger.error("No network to start. Create topology first.")
                 return False
 
-            self.logger.info("Starting Mininet network...")
+            self.logger.info("Starting Mininet network and controllers...")
+
+            # Check if controllers are already running
+            running_controllers_before = self.controller_factory.get_running_controllers()
+            if running_controllers_before:
+                self.logger.info(f"Controllers already running: {running_controllers_before}")
+            else:
+                # Start controllers first if they exist in topology
+                controllers_started = 0
+                if hasattr(self, 'topology_data') and self.topology_data.get('controllers'):
+                    self.logger.info("Starting controllers from topology...")
+                    for controller in self.topology_data['controllers']:
+                        controller_type = controller.get('controller_type', 'ryu')
+                        app = controller.get('app', 'simple_switch_13')
+                        port = controller.get('port')
+                        
+                        # Check if this controller is already running
+                        if controller_type in running_controllers_before:
+                            self.logger.info(f"{controller_type} controller already running, skipping")
+                            controllers_started += 1
+                            continue
+                        
+                        self.logger.info(f"Starting {controller_type} controller with app {app} on port {port}")
+                        if self.controller_factory.start_controller(controller_type, app, port):
+                            controllers_started += 1
+                            self.logger.info(f"Successfully started {controller_type} controller")
+                        else:
+                            self.logger.warning(f"Failed to start {controller_type} controller")
+                else:
+                    self.logger.info("No controllers defined in topology, starting with default Ryu controller")
+                    # Start default controller if none specified
+                    if self.controller_factory.start_controller('ryu', 'simple_switch_13'):
+                        controllers_started = 1
+                        self.logger.info("Started default Ryu controller")
 
             # Start the network
+            self.logger.info("Starting Mininet network...")
             self.net.start()
             self.is_running = True
 
@@ -136,25 +235,29 @@ class MininetManager:
             # Update topology data
             self._update_topology_data()
 
-            # Ensure controllers are running
+            # Verify controllers are running using our factory
+            running_controllers_after = self.controller_factory.get_running_controllers()
+            self.logger.info(f"Controllers running after network start: {running_controllers_after}")
+
+            # Also check Mininet's controller status
             if hasattr(self.net, 'controllers') and self.net.controllers:
-                running_controllers = 0
+                mininet_controllers = 0
                 for controller in self.net.controllers:
                     if hasattr(controller, 'is_running') and controller.is_running:
-                        running_controllers += 1
+                        mininet_controllers += 1
 
-                self.logger.info(f"Network started with {running_controllers} controllers running")
+                self.logger.info(f"Mininet reports {mininet_controllers} controllers running")
 
                 # If no controllers are running, the network will operate as learning switches
-                if running_controllers == 0:
+                if mininet_controllers == 0 and not running_controllers_after:
                     self.logger.warning("No controllers running - network will operate as learning bridges")
             else:
-                self.logger.info("Network started without controllers - switches will operate as learning bridges")
+                self.logger.info("Network started without Mininet controllers - switches will operate as learning bridges")
 
             # Wait a bit more for switches to learn MAC addresses
             time.sleep(3)
 
-            self.logger.info("Network started successfully")
+            self.logger.info(f"Network started successfully with {len(running_controllers_after)} controllers running")
             return True
 
         except Exception as e:
@@ -164,12 +267,14 @@ class MininetManager:
                 if self.net:
                     self.net.stop()
                 self.is_running = False
+                # Stop any controllers that might have been started
+                self.controller_factory.stop_all_controllers()
             except:
                 pass
             return False
 
     def stop_network(self) -> bool:
-        """Stop the network with proper cleanup"""
+        """Stop the network and controllers without deleting them"""
         try:
             if self.net:
                 self.logger.info("Stopping Mininet network...")
@@ -178,60 +283,177 @@ class MininetManager:
                 self.net.stop()
                 self.is_running = False
                 
-                # Clean up network object
-                self.net = None
+                # Stop all controllers (but don't delete them)
+                try:
+                    self.logger.info("Stopping all controllers...")
+                    self.controller_factory.stop_all_controllers()
+                    
+                    # Wait a moment for controllers to stop
+                    import time
+                    time.sleep(2)
+                    
+                    # Verify controllers are stopped
+                    running_controllers = self.controller_factory.get_running_controllers()
+                    system_processes = self.check_system_controller_processes()
+                    
+                    if running_controllers or system_processes:
+                        self.logger.warning(f"Some controllers still running - Factory: {running_controllers}, System: {system_processes}")
+                        # Force reset controller states
+                        self.logger.info("Force resetting controller states...")
+                        self.controller_factory.reset_controller_states()
+                        
+                        # Double-check after reset
+                        running_controllers_after = self.controller_factory.get_running_controllers()
+                        system_processes_after = self.check_system_controller_processes()
+                        
+                        if running_controllers_after or system_processes_after:
+                            self.logger.warning(f"Controllers still running after reset - Factory: {running_controllers_after}, System: {system_processes_after}")
+                        else:
+                            self.logger.info("All controllers stopped after force reset")
+                    else:
+                        self.logger.info("All controllers successfully stopped")
+                        
+                except Exception as e:
+                    self.logger.warning(f"Error stopping controllers: {e}")
+
+                # Stop all switches (but don't delete them)
+                try:
+                    self.switch_factory.stop_all_switches()
+                    self.logger.info("All switches stopped")
+                except Exception as e:
+                    self.logger.warning(f"Error stopping switches: {e}")
+
+                # Don't clean up network object - keep it for potential restart
+                # self.net = None  # Removed this line
                 
-                # Force cleanup of any remaining processes
-                import os
-                os.system('mn -c > /dev/null 2>&1')
-                
-                # Stop all controllers
-                try:
-                    self.controller_factory.cleanup()
-                except Exception as e:
-                    self.logger.warning(f"Error cleaning up controllers: {e}")
+                # Don't force cleanup - keep components available
+                # import os
+                # os.system('mn -c > /dev/null 2>&1')  # Removed this line
 
-                # Stop all switches
-                try:
-                    self.switch_factory.cleanup_switches()
-                except Exception as e:
-                    self.logger.warning(f"Error cleaning up switches: {e}")
-
-                # Clear device manager
-                try:
-                    self.device_manager.cleanup()
-                except Exception as e:
-                    self.logger.warning(f"Error cleaning up devices: {e}")
-
-                self.logger.info("Network stopped and cleaned up successfully")
+                self.logger.info("Network and controllers stopped successfully (components preserved)")
             else:
-                # Even if no network, ensure cleanup
-                import os
-                os.system('mn -c > /dev/null 2>&1')
+                self.logger.info("No network to stop")
                 self.is_running = False
                 
             return True
         except Exception as e:
             self.logger.error(f"Error stopping network: {e}")
-            # Force cleanup even if there were errors
-            try:
-                import os
-                os.system('mn -c > /dev/null 2>&1')
-                self.net = None
-                self.is_running = False
-                self.logger.info("Forced network cleanup after error")
-            except:
-                pass
+            self.is_running = False
+            return False
+
+    def restart_network(self) -> bool:
+        """Restart the network (stop and start again)"""
+        try:
+            self.logger.info("Restarting network...")
+            
+            # Stop network first
+            if not self.stop_network():
+                self.logger.error("Failed to stop network for restart")
+                return False
+            
+            # Wait a moment
+            import time
+            time.sleep(1)
+            
+            # Start network again
+            if not self.start_network():
+                self.logger.error("Failed to start network after restart")
+                return False
+            
+            self.logger.info("Network restarted successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error restarting network: {e}")
             return False
 
     def delete_network(self) -> bool:
-        """Delete the network topology completely (clear all data)"""
+        """Delete the network topology completely (stop and delete all components)"""
         try:
-            self.logger.info("Deleting network topology...")
+            self.logger.info("Deleting network topology and all components...")
             
-            # Stop network if running
-            if self.is_running:
-                self.stop_network()
+            # Check if network and controllers are running
+            network_running = self.is_running and self.net is not None
+            controllers_running = self.controller_factory.get_running_controllers()
+            system_processes = self.check_system_controller_processes()
+            
+            self.logger.info(f"Network status - Running: {network_running}, Controllers: {controllers_running}, System processes: {system_processes}")
+            
+            # If network is running, stop it and controllers first
+            if network_running:
+                self.logger.info("Network is running - stopping network and controllers first...")
+                
+                # Stop network
+                try:
+                    self.logger.info("Stopping network before deletion...")
+                    self.net.stop()
+                    self.is_running = False
+                    self.logger.info("Network stopped successfully")
+                except Exception as e:
+                    self.logger.warning(f"Error stopping network: {e} - continuing with deletion")
+                    self.is_running = False
+                
+                # Stop all controllers
+                try:
+                    self.logger.info("Stopping controllers before deletion...")
+                    self.controller_factory.stop_all_controllers()
+                    
+                    # Wait a moment for controllers to stop
+                    import time
+                    time.sleep(2)
+                    
+                    # Verify controllers are stopped
+                    remaining_controllers = self.controller_factory.get_running_controllers()
+                    remaining_system = self.check_system_controller_processes()
+                    
+                    if remaining_controllers or remaining_system:
+                        self.logger.warning(f"Some controllers still running after stop - Factory: {remaining_controllers}, System: {remaining_system}")
+                        # Force reset controller states
+                        self.controller_factory.reset_controller_states()
+                    else:
+                        self.logger.info("All controllers stopped successfully")
+                except Exception as e:
+                    self.logger.warning(f"Error stopping controllers: {e} - continuing with deletion")
+                    # Force reset controller states even if stopping failed
+                    try:
+                        self.controller_factory.reset_controller_states()
+                    except:
+                        pass
+            else:
+                self.logger.info("Network is not running - proceeding with deletion...")
+            
+            # Now delete all components
+            self.logger.info("Deleting all network components...")
+            
+            # Force stop and delete all controllers
+            try:
+                self.logger.info("Force stopping and deleting all controllers...")
+                self.controller_factory.cleanup()
+                self.logger.info("All controllers stopped and deleted")
+            except Exception as e:
+                self.logger.warning(f"Error cleaning up controllers: {e}")
+                # Force reset controller states even if cleanup failed
+                try:
+                    self.controller_factory.reset_controller_states()
+                except:
+                    pass
+
+            # Stop and delete all switches
+            try:
+                self.switch_factory.cleanup_switches()
+                self.logger.info("All switches stopped and deleted")
+            except Exception as e:
+                self.logger.warning(f"Error cleaning up switches: {e}")
+
+            # Clean up device manager
+            try:
+                self.device_manager.cleanup()
+                self.logger.info("Device manager cleaned up")
+            except Exception as e:
+                self.logger.warning(f"Error cleaning up devices: {e}")
+            
+            # Clear network object
+            self.net = None
             
             # Clear all topology data
             self.topology_data = {
@@ -271,11 +493,85 @@ class MininetManager:
             import os
             os.system('mn -c > /dev/null 2>&1')
             
-            self.logger.info("Network topology deleted successfully")
+            self.logger.info("Network topology and all components deleted successfully")
             return True
             
         except Exception as e:
             self.logger.error(f"Error deleting network: {e}")
+            # Try force deletion as fallback
+            self.logger.info("Attempting force deletion as fallback...")
+            return self._force_delete_network()
+
+    def _force_delete_network(self) -> bool:
+        """Force delete network without stopping (emergency fallback)"""
+        try:
+            self.logger.info("Force deleting network (emergency mode)...")
+            
+            # Force kill all processes
+            import subprocess
+            import os
+            
+            # Kill controller processes
+            controller_processes = ['ryu-manager', 'pox.py', 'osken', 'karaf']
+            for process_name in controller_processes:
+                try:
+                    subprocess.run(['pkill', '-f', process_name], 
+                                  capture_output=True, text=True)
+                except Exception:
+                    pass
+            
+            # Force cleanup Mininet
+            os.system('mn -c > /dev/null 2>&1')
+            
+            # Reset all states
+            self.is_running = False
+            self.net = None
+            
+            # Force reset controller states
+            try:
+                self.controller_factory.reset_controller_states()
+            except:
+                pass
+            
+            # Clear all data
+            self.topology_data = {
+                'nodes': [],
+                'links': [],
+                'controllers': [],
+                'stats': {}
+            }
+            
+            # Clear topology manager data
+            if hasattr(self, 'topology_manager'):
+                self.topology_manager.topology_data = {
+                    'nodes': [],
+                    'links': [],
+                    'controllers': [],
+                    'stats': {}
+                }
+                self.topology_manager.controller_config = []
+                self.topology_manager.custom_configs = {}
+                self.topology_manager.node_types = {}
+                self.topology_manager.node_positions = {}
+                self.topology_manager.controller_links = set()
+            
+            # Clear configuration tracker
+            if hasattr(self, 'config_tracker'):
+                self.config_tracker.applied_configurations = {
+                    'device_configs': {},
+                    'terminal_commands': {},
+                    'api_operations': [],
+                    'routing_configs': {},
+                    'firewall_configs': {},
+                    'interface_configs': {},
+                    'service_configs': {}
+                }
+            
+            self.logger.info("Force deletion completed")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error in force deletion: {e}")
             return False
 
     # ================================
@@ -285,7 +581,13 @@ class MininetManager:
     def start_controller(self, controller_type: str = 'ryu', app: str = 'simple_switch_13',
                         port: Optional[int] = None, custom_args: Optional[Any] = None) -> bool:
         """Start a controller"""
-        return self.controller_factory.start_controller(controller_type, app, port, custom_args)
+        self.logger.info(f"Starting {controller_type} controller with app {app}")
+        success = self.controller_factory.start_controller(controller_type, app, port, custom_args)
+        if success:
+            self.logger.info(f"Successfully started {controller_type} controller")
+        else:
+            self.logger.error(f"Failed to start {controller_type} controller")
+        return success
 
     def stop_controller(self, controller_type: Optional[str] = None) -> bool:
         """Stop a controller"""
@@ -296,9 +598,123 @@ class MininetManager:
         """Restart a controller"""
         return self.controller_factory.restart_controller(controller_type, app, port)
 
+    def force_restart_controllers(self) -> bool:
+        """Force restart all controllers (useful for debugging)"""
+        try:
+            self.logger.info("Force restarting all controllers...")
+            
+            # Reset all controller states
+            self.controller_factory.reset_controller_states()
+            
+            # Start controllers from topology if available
+            if hasattr(self, 'topology_data') and self.topology_data.get('controllers'):
+                for controller in self.topology_data['controllers']:
+                    controller_type = controller.get('controller_type', 'ryu')
+                    app = controller.get('app', 'simple_switch_13')
+                    port = controller.get('port')
+                    
+                    self.logger.info(f"Force starting {controller_type} controller...")
+                    if self.controller_factory.start_controller(controller_type, app, port):
+                        self.logger.info(f"Successfully force started {controller_type} controller")
+                    else:
+                        self.logger.warning(f"Failed to force start {controller_type} controller")
+            else:
+                # Start default controller
+                self.logger.info("No topology controllers, starting default Ryu controller...")
+                if self.controller_factory.start_controller('ryu', 'simple_switch_13'):
+                    self.logger.info("Successfully force started default Ryu controller")
+                else:
+                    self.logger.warning("Failed to force start default Ryu controller")
+            
+            # Verify controllers are running
+            running_controllers = self.controller_factory.get_running_controllers()
+            self.logger.info(f"Controllers running after force restart: {running_controllers}")
+            
+            return len(running_controllers) > 0
+            
+        except Exception as e:
+            self.logger.error(f"Error force restarting controllers: {e}")
+            return False
+
+    def shutdown_with_cleanup(self):
+        """Shutdown the application with full cleanup and exit"""
+        self.logger.info("Initiating shutdown with cleanup...")
+        self._emergency_cleanup()
+
+    def force_delete_network(self) -> bool:
+        """Force delete network without graceful stopping (use when normal deletion fails)"""
+        self.logger.info("Force deleting network (bypassing graceful stop)...")
+        return self._force_delete_network()
+
+    def check_system_controller_processes(self) -> List[str]:
+        """Check for running controller processes at system level"""
+        import subprocess
+        running_processes = []
+        
+        try:
+            # Check for controller processes
+            controller_processes = ['ryu-manager', 'pox.py', 'osken', 'karaf']
+            for process_name in controller_processes:
+                try:
+                    result = subprocess.run(['pgrep', '-f', process_name], 
+                                          capture_output=True, text=True)
+                    if result.returncode == 0 and result.stdout.strip():
+                        pids = result.stdout.strip().split('\n')
+                        running_processes.extend([f"{process_name}({pid})" for pid in pids])
+                except Exception:
+                    pass
+        except Exception as e:
+            self.logger.error(f"Error checking system processes: {e}")
+        
+        return running_processes
+
+    def get_network_status(self) -> Dict[str, Any]:
+        """Get comprehensive network status including running state"""
+        try:
+            # Check network state
+            network_running = self.is_running and self.net is not None
+            
+            # Check controller states
+            factory_controllers = self.controller_factory.get_running_controllers()
+            system_processes = self.check_system_controller_processes()
+            
+            # Check if network has controllers
+            has_network_controllers = False
+            if self.net and hasattr(self.net, 'controllers') and self.net.controllers:
+                has_network_controllers = any(hasattr(c, 'is_running') and c.is_running for c in self.net.controllers)
+            
+            status = {
+                'network_running': network_running,
+                'network_exists': self.net is not None,
+                'factory_controllers_running': factory_controllers,
+                'system_controller_processes': system_processes,
+                'has_network_controllers': has_network_controllers,
+                'any_controllers_running': len(factory_controllers) > 0 or len(system_processes) > 0,
+                'topology_data': {
+                    'nodes_count': len(self.topology_data.get('nodes', [])),
+                    'links_count': len(self.topology_data.get('links', [])),
+                    'controllers_count': len(self.topology_data.get('controllers', []))
+                }
+            }
+            
+            return status
+            
+        except Exception as e:
+            self.logger.error(f"Error getting network status: {e}")
+            return {
+                'network_running': False,
+                'network_exists': False,
+                'factory_controllers_running': [],
+                'system_controller_processes': [],
+                'has_network_controllers': False,
+                'any_controllers_running': False,
+                'error': str(e)
+            }
+
     def get_controller_status(self, controller_type: Optional[str] = None) -> Dict[str, Any]:
         """Get controller status"""
         return self.controller_factory.get_controller_status(controller_type)
+
 
     def get_controller_logs(self, controller_type: Optional[str] = None,
                            lines: int = 100) -> Dict[str, Any]:
@@ -308,6 +724,30 @@ class MininetManager:
     def get_available_controllers(self) -> List[str]:
         """Get available controller types"""
         return self.controller_factory.get_available_controllers()
+
+    def check_controller_installation(self, controller_type: str = None) -> Dict[str, Any]:
+        """Check controller installation status"""
+        if controller_type:
+            if controller_type in self.controller_factory.controllers:
+                controller = self.controller_factory.controllers[controller_type]
+                return {
+                    'controller_type': controller_type,
+                    'installed': controller.check_installation(),
+                    'running': controller.is_running,
+                    'port': controller.controller_port
+                }
+            else:
+                return {'error': f'Controller type {controller_type} not found'}
+        else:
+            # Check all controllers
+            results = {}
+            for ct, controller in self.controller_factory.controllers.items():
+                results[ct] = {
+                    'installed': controller.check_installation(),
+                    'running': controller.is_running,
+                    'port': controller.controller_port
+                }
+            return results
 
     # ================================
     # Switch Management

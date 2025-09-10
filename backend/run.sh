@@ -147,7 +147,15 @@ cleanup() {
     print_status "Shutting down..."
     print_status "Cleaning up Mininet processes..."
     mn -c > /dev/null 2>&1 || true
-    print_success "Cleanup complete"
+    
+    print_status "Cleaning up controller processes..."
+    # Kill any remaining controller processes
+    pkill -f "ryu-manager" > /dev/null 2>&1 || true
+    pkill -f "pox.py" > /dev/null 2>&1 || true
+    pkill -f "osken" > /dev/null 2>&1 || true
+    pkill -f "karaf" > /dev/null 2>&1 || true
+    
+    print_success "Cleanup complete - program terminated"
     exit 0
 }
 

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "mininet-mcpo": {
+      "command": "/home/ege/anaconda3/bin/python3",
+      "args": ["/home/ege/Desktop/mininet-web-framework/mcp_server/simple_mcpo_client.py"],
+      "env": {
+        "FLASK_URL": "http://localhost:5000"
+      },
+      "cwd": "/home/ege/Desktop/mininet-web-framework/mcp_server"
+    }
+  }
+}

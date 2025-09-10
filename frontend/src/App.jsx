@@ -52,6 +52,8 @@ import PerformanceWidget from './components/PerformanceManager/PerformanceWidget
 import SimulationSnapshots from './components/SimulationSnapshots';
 import SnapshotsWidget from './components/SimulationSnapshots/SnapshotsWidget';
 import StorageManager from './components/StorageManager';
+import LLMConfigurationManager from './components/LLMConfigurationManager';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Hooks
 import { useApiCall } from './hooks/useApiCall';
@@ -154,6 +156,7 @@ const MininetVisualizer = () => {
   const [diagnosticWidgetVisible, setDiagnosticWidgetVisible] = useState(true);
 
   const [snapshotsOpen, setSnapshotsOpen] = useState(false);
+  const [showLLMConfig, setShowLLMConfig] = useState(false);
 
   // ============================================================================
   // HOOKS
@@ -352,30 +355,6 @@ const MininetVisualizer = () => {
   // ============================================================================
   // UI COMPONENT BUILDERS
   // ============================================================================
-
-  // Performance Manager Button
-  const PerformanceManagerButton = useCallback(() => (
-    <button
-      onClick={() => setShowPerformanceManager(true)}
-      className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105"
-      title="Open Performance Manager (Ctrl+P)"
-    >
-      <Activity size={18} />
-      <span>Performance Manager</span>
-    </button>
-  ), []);
-
-  // Configuration Button
-  const ConfigurationButton = useCallback(() => (
-    <button
-      onClick={() => setShowConfigModal(true)}
-      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105"
-      title="Open Network Configuration (Ctrl+Shift+C)"
-    >
-      <Settings size={18} />
-      <span>Configure Network</span>
-    </button>
-  ), []);
 
   // Diagnostic Button with Dynamic Styling
   const DiagnosticButton = useCallback(() => {
@@ -789,18 +768,14 @@ const MininetVisualizer = () => {
         DiagnosticButton={DiagnosticButton}
         diagnosticSummary={getDiagnosticSummary()}
         extraActions={
-          <div className="flex items-center gap-2">
-            <ConfigurationButton />
-            <PerformanceManagerButton />
-            <button
-              onClick={handleOpenStorageManager}
-              className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-              title="Manage saved topologies and configurations"
-            >
-              <Database size={16} />
-              Storage
-            </button>
-          </div>
+          <button
+            onClick={() => setShowLLMConfig(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 font-medium text-sm border border-purple-500/20"
+            title="Manage LLM configurations and API keys"
+          >
+            <Zap size={16} className="animate-pulse" />
+            <span>LLM Config</span>
+          </button>
         }
       />
 
@@ -1117,24 +1092,7 @@ const MininetVisualizer = () => {
               />
             )}
 
-            {/* Simulation Snapshots Card */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-              <div className="p-4 border-b border-gray-200">
-                <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-                  <Database className="w-5 h-5 text-orange-600" />
-                  Simulation Snapshots
-                </h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  Quick access to snapshot management
-                </p>
-              </div>
-              <div className="p-4">
-                <SnapshotsWidget
-                  onOpenSnapshots={() => setSnapshotsOpen(true)}
-                  className="border-0 shadow-none p-0"
-                />
-              </div>
-            </div>
+            
           </div>
         </div>
 
@@ -1485,15 +1443,38 @@ const MininetVisualizer = () => {
         compareSnapshots={compareSnapshots}
       />
 
+      {/* LLM Configuration Manager Modal */}
+      {showLLMConfig && (
+        <div className="fixed inset-0 bg-black/30 bg-opacity-50 z-50 flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl my-8 flex flex-col max-h-[calc(100vh-4rem)]">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h2 className="text-2xl font-bold text-gray-900">LLM Configuration Manager</h2>
+              <button
+                onClick={() => setShowLLMConfig(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X size={24} className="text-gray-500" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <ErrorBoundary>
+                <LLMConfigurationManager />
+              </ErrorBoundary>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Loading Overlay */}
-      {loading && (showConfigModal || showPerformanceManager || showStorageManager || snapshotsOpen) && (
+      {loading && (showConfigModal || showPerformanceManager || showStorageManager || snapshotsOpen || showLLMConfig) && (
         <div className="fixed inset-0 bg-black bg-opacity-30 z-60 flex items-center justify-center">
           <div className="bg-white rounded-lg p-6 flex items-center gap-3 shadow-2xl">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
             <span className="text-gray-700 font-medium">
               {showPerformanceManager ? 'Loading Performance Data...' : 
                showStorageManager ? 'Loading Storage Data...' : 
-               snapshotsOpen ? 'Loading Snapshots...' : 'Applying Configuration...'}
+               snapshotsOpen ? 'Loading Snapshots...' : 
+               showLLMConfig ? 'Loading LLM Configuration...' : 'Applying Configuration...'}
             </span>
           </div>
         </div>

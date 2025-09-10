@@ -8,7 +8,8 @@ const Header = ({
   refreshRate,
   setRefreshRate,
   isFullscreen,
-  setIsFullscreen
+  setIsFullscreen,
+  extraActions
 }) => {
   return (
     <header className="bg-gradient-to-r from-gray-50 to-gray-100 shadow-lg border-b border-gray-200 backdrop-blur-xl">
@@ -69,6 +70,13 @@ const Header = ({
                 {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
               </button>
             </div>
+
+            {/* Extra Actions */}
+            {extraActions && (
+              <div className="ml-4">
+                {extraActions}
+              </div>
+            )}
           </div>
         </div>
       </div>

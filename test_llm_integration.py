@@ -17,39 +17,54 @@ sys.path.insert(0, backend_dir)
 def test_llm_service():
     """Test the LLM service directly"""
     print("Testing LLM service directly...")
-    
+
     try:
         from core.llm import LLMFactory, LLMManager, TopologyLLMService
-        
+
         # Test factory
         print("1. Testing LLM Factory...")
+        supported_services = LLMFactory.get_supported_services()
+        print(f"   Supported services: {supported_services}")
+
         available_services = LLMFactory.get_available_services()
         print(f"   Available services: {available_services}")
-        
+
+        # Test each service creation
+        print("2. Testing service creation...")
+        for service_type in supported_services:
+            try:
+                if service_type == 'ollama':
+                    service = LLMFactory.create_service(service_type, model_name="deepseek-r1:14b")
+                else:
+                    service = LLMFactory.create_service(service_type, api_key="dummy")
+                print(f"   ✓ {service_type}: {service.get_service_type()}")
+            except Exception as e:
+                print(f"   ✗ {service_type}: {e}")
+
         # Test manager
-        print("2. Testing LLM Manager...")
+        print("3. Testing LLM Manager...")
         llm_manager = LLMManager()
         print(f"   Service info: {llm_manager.get_service_info()}")
-        
+
         # Test topology service
-        print("3. Testing Topology LLM Service...")
+        print("4. Testing Topology LLM Service...")
         topology_service = TopologyLLMService(llm_manager)
         print(f"   Service status: {topology_service.get_service_status()}")
-        
+
         # Test simple generation
-        print("4. Testing topology generation...")
+        print("5. Testing topology generation...")
         description = "Create a simple network with 2 hosts connected to a switch"
         result = topology_service.generate_topology_from_description(description)
-        
+
         if result.get('success'):
             print("   ✓ Topology generation successful!")
             print(f"   Generated {result.get('metadata', {}).get('node_count', 0)} nodes")
             print(f"   Generated {result.get('metadata', {}).get('link_count', 0)} links")
         else:
             print(f"   ✗ Topology generation failed: {result.get('error', 'Unknown error')}")
-        
+
         return result.get('success', False)
-        
+
     except Exception as e:
         print(f"   ✗ Direct test failed: {e}")
         return False
@@ -57,9 +72,9 @@ def test_llm_service():
 def test_api_endpoints():
     """Test the API endpoints"""
     print("\nTesting API endpoints...")
-    
+
     base_url = "http://localhost:5000/api/llm"
-    
+
     try:
         # Test status endpoint
         print("1. Testing status endpoint...")
@@ -71,22 +86,63 @@ def test_api_endpoints():
         else:
             print(f"   ✗ Status endpoint failed: {response.status_code}")
             return False
-        
+
+        # Test service types endpoint
+        print("2. Testing service types endpoint...")
+        response = requests.get(f"{base_url}/../llm-config/service-types", timeout=10)
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('success'):
+                service_types = result.get('service_types', {})
+                print(f"   ✓ Service types loaded: {list(service_types.keys())}")
+                for service_type, info in service_types.items():
+                    print(f"     - {service_type}: {info.get('name')} ({'API key required' if info.get('requires_api_key') else 'No API key needed'})")
+            else:
+                print(f"   ✗ Service types failed: {result.get('error', 'Unknown error')}")
+        else:
+            print(f"   ✗ Service types API failed: {response.status_code}")
+
+        # Test service switching
+        print("3. Testing service switching...")
+        switch_payload = {
+            "service_type": "ollama",
+            "service_kwargs": {
+                "model_name": "deepseek-r1:14b",
+                "base_url": "http://localhost:11434"
+            }
+        }
+
+        response = requests.post(
+            f"{base_url}/switch-service",
+            json=switch_payload,
+            timeout=10
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('success'):
+                print("   ✓ Service switching to Ollama working!")
+                print(f"   Service info: {result.get('service_info', {})}")
+            else:
+                print(f"   ✗ Service switching failed: {result.get('error', 'Unknown error')}")
+        else:
+            print(f"   ✗ Service switching API failed: {response.status_code}")
+
         # Test topology generation endpoint
-        print("2. Testing topology generation endpoint...")
+        print("4. Testing topology generation endpoint...")
         test_description = "Create a network with 3 hosts, 2 switches, and 1 router"
-        
+
         payload = {
             "description": test_description,
             "parameters": {}
         }
-        
+
         response = requests.post(
             f"{base_url}/generate-topology",
             json=payload,
             timeout=30
         )
-        
+
         if response.status_code == 200:
             result = response.json()
             if result.get('success'):
@@ -98,20 +154,20 @@ def test_api_endpoints():
             print(f"   ✗ API request failed: {response.status_code}")
             print(f"   Response: {response.text}")
             return False
-        
+
         # Test chat endpoint
-        print("3. Testing chat endpoint...")
+        print("5. Testing chat endpoint...")
         chat_payload = {
             "message": "What is a network topology?",
             "use_history": False
         }
-        
+
         response = requests.post(
             f"{base_url}/chat",
             json=chat_payload,
             timeout=30
         )
-        
+
         if response.status_code == 200:
             result = response.json()
             if result.get('success'):
@@ -121,9 +177,9 @@ def test_api_endpoints():
                 print(f"   ✗ Chat failed: {result.get('error', 'Unknown error')}")
         else:
             print(f"   ✗ Chat API request failed: {response.status_code}")
-        
+
         return True
-        
+
     except requests.exceptions.ConnectionError:
         print("   ✗ Cannot connect to API server. Make sure the server is running.")
         return False
@@ -230,6 +286,12 @@ def main():
     print("  POST /api/llm/suggest-improvements")
     print("  GET  /api/llm/templates")
     print("  POST /api/llm/validate-topology")
+    print("  POST /api/llm/switch-service")
+    print("\nSupported LLM Services:")
+    print("  - Ollama (Local models, no API key required)")
+    print("  - OpenAI (GPT models, API key required)")
+    print("  - Google Gemini (Gemini models, API key required)")
+    print("  - Anthropic Claude (Claude models, API key required)")
 
 if __name__ == "__main__":
     main()

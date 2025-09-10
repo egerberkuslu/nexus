@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "mininet-network": {
+      "command": "node",
+      "args": ["mcp-bridge.js"],
+      "cwd": "/home/ege/Desktop/mininet-web-framework/mcp_server",
+      "env": {}
+    }
+  }
+}

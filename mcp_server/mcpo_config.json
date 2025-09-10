@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "mininet-fastmcp": {
+      "command": "python3",
+      "args": ["fastmcp_server.py"],
+      "env": {
+        "FLASK_URL": "http://localhost:5000"
+      },
+      "cwd": "/home/ege/Desktop/mininet-web-framework/mcp_server"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+# MCPO Configuration for Mininet Integration
+mcp_servers:
+  mininet-controller:
+    name: "Mininet Network Controller"
+    description: "MCP server for Mininet network simulation control"
+    command: ["python", "/home/ege/Desktop/mininet-web-framework/mcp_server/fastmcp_server.py"]
+    env:
+      FLASK_URL: "http://localhost:5000"
+    args: []
+    cwd: "/home/ege/Desktop/mininet-web-framework/mcp_server"
+    timeout: 30
+    retry_attempts: 3
+
+# MCPO Server Configuration
+server:
+  host: "0.0.0.0"
+  port: 3001
+  debug: true
+  log_level: "INFO"
+
+# Open WebUI Integration
+openwebui:
+  enabled: true
+  api_key: "TBObawtR5n/WM7aN"
+  base_url: "http://localhost:8080"

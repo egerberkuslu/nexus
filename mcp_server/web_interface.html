@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mininet MCPO Server Interface</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, textarea, select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        textarea { height: 100px; resize: vertical; }
+        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .result { margin-top: 20px; padding: 15px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; }
+        .error { background: #f8d7da; border-color: #f5c6cb; color: #721c24; }
+        .success { background: #d4edda; border-color: #c3e6cb; color: #155724; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Mininet MCPO Server Interface</h1>
+        
+        <div class="form-group">
+            <label for="description">Network Description:</label>
+            <textarea id="description" placeholder="Enter your network topology description...">Create a network with h4 -> s1 -> r1 -> s2 -> h6, c1 -> r1 with POX controller</textarea>
+        </div>
+        
+        <div class="form-group">
+            <label for="use_llm">Use LLM:</label>
+            <select id="use_llm">
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label for="context_type">Context Type:</label>
+            <select id="context_type">
+                <option value="design">Design</option>
+                <option value="troubleshooting">Troubleshooting</option>
+                <option value="optimization">Optimization</option>
+            </select>
+        </div>
+        
+        <button onclick="generateTopology()">Generate Network Topology</button>
+        <button onclick="getStatus()">Get Network Status</button>
+        <button onclick="startNetwork()">Start Network</button>
+        <button onclick="stopNetwork()">Stop Network</button>
+        
+        <div id="result" class="result" style="display: none;"></div>
+    </div>
+
+    <script>
+        const MCPO_BASE = 'http://localhost:3001/mininet-fastmcp';
+        
+        async function callAPI(endpoint, method = 'POST', data = null) {
+            try {
+                const options = {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' }
+                };
+                
+                if (data && method === 'POST') {
+                    options.body = JSON.stringify(data);
+                }
+                
+                const response = await fetch(`${MCPO_BASE}${endpoint}`, options);
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                return result;
+            } catch (error) {
+                return { error: error.message, success: false };
+            }
+        }
+        
+        function showResult(data, isError = false) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.style.display = 'block';
+            resultDiv.className = `result ${isError ? 'error' : 'success'}`;
+            resultDiv.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+        }
+        
+        async function generateTopology() {
+            const description = document.getElementById('description').value;
+            const use_llm = document.getElementById('use_llm').value === 'true';
+            const context_type = document.getElementById('context_type').value;
+            
+            const data = {
+                description: description,
+                use_llm: use_llm,
+                context_type: context_type
+            };
+            
+            const result = await callAPI('/generate_network_topology', 'POST', data);
+            showResult(result, result.error);
+        }
+        
+        async function getStatus() {
+            const result = await callAPI('/get_network_status', 'POST');
+            showResult(result, result.error);
+        }
+        
+        async function startNetwork() {
+            const result = await callAPI('/start_network', 'POST');
+            showResult(result, result.error);
+        }
+        
+        async function stopNetwork() {
+            const result = await callAPI('/stop_network', 'POST');
+            showResult(result, result.error);
+        }
+    </script>
+</body>
+</html>

@@ -15,7 +15,7 @@ def get_mininet_manager():
     """Get the Mininet manager from app config"""
     return current_app.config['MININET_MANAGER']
 
-@controller_bp.route('/status', methods=['GET'])
+@controller_bp.route('/status', methods=['GET', 'POST'])
 @log_api_request
 def get_controller_status():
     """Get comprehensive controller status"""
@@ -35,7 +35,7 @@ def get_controller_status():
         logger.error(f"Error getting controller status: {e}")
         return jsonify({'error': str(e)}), 500
 
-@controller_bp.route('/types', methods=['GET'])
+@controller_bp.route('/types', methods=['GET', 'POST'])
 @log_api_request
 def get_available_controller_types():
     """Get available controller types and their configurations"""
@@ -153,17 +153,32 @@ def stop_controller():
     """Stop controller"""
     try:
         mininet_mgr = get_mininet_manager()
-        success = mininet_mgr.stop_controller()
-
-        active_controller = mininet_mgr.controller_factory.get_active_controller()
-        controller_name = active_controller or 'controller'
+        
+        # Handle both JSON and form data
+        if request.is_json:
+            data = request.get_json() or {}
+        else:
+            data = request.form.to_dict() or {}
+        
+        # Get controller type to stop (if specified)
+        controller_type = data.get('controller_type')
+        
+        if controller_type:
+            # Stop specific controller type
+            success = mininet_mgr.controller_factory.stop_controller(controller_type)
+            controller_name = controller_type
+        else:
+            # Stop active controller
+            success = mininet_mgr.stop_controller()
+            active_controller = mininet_mgr.controller_factory.get_active_controller()
+            controller_name = active_controller or 'controller'
 
         message = f'{controller_name.upper()} controller stopped successfully' if success else f'Failed to stop {controller_name} controller'
 
         return jsonify({
             'success': success,
             'message': message,
-            'stopped_controller': active_controller,
+            'stopped_controller': controller_name,
             'status': mininet_mgr.get_controller_status()
         })
 
@@ -219,18 +234,28 @@ def restart_controller():
         logger.error(f"Error restarting controller: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@controller_bp.route('/logs', methods=['GET'])
+@controller_bp.route('/logs', methods=['GET', 'POST'])
 @log_api_request
 def get_controller_logs():
     """Get controller logs"""
     try:
         mininet_mgr = get_mininet_manager()
 
-        # Get number of lines from query parameter
-        lines = request.args.get('lines', 100, type=int)
+        # Handle both JSON and query parameters
+        if request.is_json:
+            data = request.get_json() or {}
+            lines = data.get('lines', 100)
+            controller_type = data.get('controller_type')
+        else:
+            lines = request.args.get('lines', 100, type=int)
+            controller_type = request.args.get('controller_type')
 
-        # Get active controller
-        active_controller = mininet_mgr.controller_factory.get_active_controller()
+        # Get active controller or use specified controller type
+        if controller_type:
+            active_controller = controller_type
+        else:
+            active_controller = mininet_mgr.controller_factory.get_active_controller()
+            
         if not active_controller:
             return jsonify({
                 'logs': [],
@@ -282,15 +307,20 @@ def clear_controller_logs():
 
 
 
-@controller_bp.route('/apps', methods=['GET'])
+@controller_bp.route('/apps', methods=['GET', 'POST'])
 @log_api_request
 def get_available_apps():
     """Get list of available controller applications"""
     try:
         mininet_mgr = get_mininet_manager()
 
-        # Get controller framework from query parameter, default to active controller
-        framework = request.args.get('framework')
+        # Handle both JSON and query parameters
+        if request.is_json:
+            data = request.get_json() or {}
+            framework = data.get('framework')
+        else:
+            framework = request.args.get('framework')
+            
         if not framework:
             framework = mininet_mgr.controller_factory.get_active_controller() or 'ryu'
 
@@ -885,3 +915,67 @@ def check_osken_installation():
             'error': str(e),
             'status': 'error'
         }
+
+@controller_bp.route('/force_restart', methods=['POST'])
+@log_api_request
+def force_restart_controllers():
+    """Force restart all controllers (useful for debugging)"""
+    try:
+        mininet_mgr = get_mininet_manager()
+        
+        # Force stop all controllers
+        mininet_mgr.controller_factory.stop_all_controllers()
+        
+        # Wait a moment
+        import time
+        time.sleep(2)
+        
+        # Force reset all controller states
+        mininet_mgr.controller_factory.reset_controller_states()
+        
+        # Get updated status
+        status = mininet_mgr.get_controller_status()
+        
+        return jsonify({
+            'success': True,
+            'message': 'All controllers force restarted',
+            'status': status
+        })
+        
+    except Exception as e:
+        logger.error(f"Error force restarting controllers: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@controller_bp.route('/install/check', methods=['GET', 'POST'])
+@log_api_request
+def check_controller_installation():
+    """Check if a specific controller is properly installed"""
+    try:
+        mininet_mgr = get_mininet_manager()
+        
+        # Handle both JSON and query parameters
+        if request.is_json:
+            data = request.get_json() or {}
+            controller_type = data.get('controller_type')
+        else:
+            controller_type = request.args.get('controller_type')
+            
+        if not controller_type:
+            return jsonify({
+                'error': 'controller_type parameter is required',
+                'available_types': mininet_mgr.controller_factory.get_available_controllers()
+            }), 400
+        
+        # Check installation status
+        installation_status = mininet_mgr.check_controller_installation(controller_type)
+        
+        return jsonify({
+            'success': True,
+            'controller_type': controller_type,
+            'installed': installation_status,
+            'message': f'{controller_type} is {"installed" if installation_status else "not installed"}'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error checking controller installation: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500

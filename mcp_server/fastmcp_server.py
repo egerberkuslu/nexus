@@ -1269,6 +1269,268 @@ async def validate_topology(
     return await make_request("POST", "/api/network/validate", json=data)
 
 # ============================================================================
+# 📸 SNAPSHOT MANAGEMENT TOOLS
+# ============================================================================
+
+@mcp.tool()
+async def create_snapshot(
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    snapshot_type: str = "full",
+    include_topology_data: bool = True
+) -> Dict[str, Any]:
+    """
+    📸 CREATE NETWORK SIMULATION SNAPSHOT
+    
+    Creates a comprehensive snapshot of the current network simulation state.
+    Captures topology, configurations, controller state, and all network data.
+    
+    **Snapshot Contents:**
+    - Complete network topology (nodes, links, configurations)
+    - Controller state and running status
+    - Host and router configurations
+    - Flow tables and routing information
+    - Applied configurations and terminal commands
+    - Network performance metrics
+    
+    **Args:**
+        name (str, optional): Custom name for the snapshot (auto-generated if not provided)
+        description (str, optional): Description of the snapshot
+        snapshot_type (str): Type of snapshot ("full", "topology", "config", "state")
+        include_topology_data (bool): Whether to include current topology data
+    
+    **Returns:**
+        Dict containing snapshot creation status, ID, and metadata
+    
+    **Example:**
+        ```python
+        # Create snapshot with auto-generated name
+        result = await create_snapshot()
+        
+        # Create named snapshot
+        result = await create_snapshot(
+            name="test_network_v1",
+            description="Initial network configuration for testing"
+        )
+        ```
+    """
+    data = {
+        "snapshot_type": snapshot_type,
+        "include_topology_data": include_topology_data
+    }
+    if name:
+        data["name"] = name
+    if description:
+        data["description"] = description
+    return await make_request("POST", "/api/snapshots/create", json=data)
+
+@mcp.tool()
+async def list_snapshots(limit: int = 50, skip: int = 0) -> Dict[str, Any]:
+    """
+    📋 LIST ALL SAVED SNAPSHOTS
+    
+    Retrieves a list of all saved network simulation snapshots.
+    Includes metadata and basic information about each snapshot.
+    
+    **Args:**
+        limit (int): Maximum number of snapshots to return (default: 50)
+        skip (int): Number of snapshots to skip for pagination (default: 0)
+    
+    **Returns:**
+        Dict containing list of snapshots with metadata
+    
+    **Example:**
+        ```python
+        # Get first 10 snapshots
+        snapshots = await list_snapshots(limit=10)
+        
+        # Get next 10 snapshots (pagination)
+        snapshots = await list_snapshots(limit=10, skip=10)
+        ```
+    """
+    params = {"limit": limit, "skip": skip}
+    return await make_request("GET", "/api/snapshots/", params=params)
+
+@mcp.tool()
+async def get_snapshot(snapshot_id: str) -> Dict[str, Any]:
+    """
+    📄 GET SPECIFIC SNAPSHOT DETAILS
+    
+    Retrieves detailed information about a specific snapshot.
+    Includes complete snapshot data, metadata, and configuration details.
+    
+    **Args:**
+        snapshot_id (str): Unique identifier of the snapshot to retrieve
+    
+    **Returns:**
+        Dict containing complete snapshot data and metadata
+    
+    **Example:**
+        ```python
+        snapshot = await get_snapshot("snapshot_123")
+        print(f"Snapshot name: {snapshot.get('snapshot', {}).get('name')}")
+        print(f"Created: {snapshot.get('snapshot', {}).get('created_at')}")
+        ```
+    """
+    return await make_request("GET", f"/api/snapshots/{snapshot_id}")
+
+@mcp.tool()
+async def update_snapshot(
+    snapshot_id: str,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    ✏️ UPDATE SNAPSHOT METADATA
+    
+    Updates the metadata of an existing snapshot.
+    Allows modification of name, description, and custom metadata.
+    
+    **Args:**
+        snapshot_id (str): ID of the snapshot to update
+        name (str, optional): New name for the snapshot
+        description (str, optional): New description for the snapshot
+        metadata (Dict[str, Any], optional): Additional metadata to update
+    
+    **Returns:**
+        Dict containing update status and confirmation
+    
+    **Example:**
+        ```python
+        result = await update_snapshot(
+            "snapshot_123",
+            name="Updated Network Config",
+            description="Modified network with new hosts"
+        )
+        ```
+    """
+    data = {}
+    if name:
+        data["name"] = name
+    if description:
+        data["description"] = description
+    if metadata:
+        data["metadata"] = metadata
+    return await make_request("PUT", f"/api/snapshots/{snapshot_id}", json=data)
+
+@mcp.tool()
+async def delete_snapshot(snapshot_id: str) -> Dict[str, Any]:
+    """
+    🗑️ DELETE SNAPSHOT
+    
+    Permanently deletes a saved snapshot from the database.
+    This operation cannot be undone.
+    
+    **Args:**
+        snapshot_id (str): ID of the snapshot to delete
+    
+    **Warning:**
+    - This operation is irreversible
+    - All snapshot data will be permanently lost
+    
+    **Returns:**
+        Dict containing deletion status and confirmation
+    
+    **Example:**
+        ```python
+        result = await delete_snapshot("snapshot_123")
+        if result.get("success"):
+            print("Snapshot deleted successfully")
+        ```
+    """
+    return await make_request("DELETE", f"/api/snapshots/{snapshot_id}")
+
+@mcp.tool()
+async def restore_snapshot(snapshot_id: str) -> Dict[str, Any]:
+    """
+    🔄 RESTORE NETWORK FROM SNAPSHOT
+    
+    Restores the network simulation to a previously saved snapshot state.
+    Recreates topology, configurations, and controller state from snapshot data.
+    
+    **Restoration Process:**
+    - Stops current network if running
+    - Recreates topology from snapshot data
+    - Applies all saved configurations
+    - Restores controller state
+    - Starts network with restored configuration
+    
+    **Args:**
+        snapshot_id (str): ID of the snapshot to restore
+    
+    **Returns:**
+        Dict containing restoration status and snapshot information
+    
+    **Example:**
+        ```python
+        result = await restore_snapshot("snapshot_123")
+        if result.get("success"):
+            print("Network restored from snapshot successfully")
+        ```
+    """
+    return await make_request("POST", f"/api/snapshots/{snapshot_id}/restore")
+
+@mcp.tool()
+async def compare_snapshots(snapshot1_id: str, snapshot2_id: str) -> Dict[str, Any]:
+    """
+    🔍 COMPARE TWO SNAPSHOTS
+    
+    Compares two snapshots and identifies differences in topology, configuration, and state.
+    Useful for tracking changes and analyzing network evolution.
+    
+    **Comparison Areas:**
+    - Node count and topology structure
+    - Link count and connectivity
+    - Controller state and configuration
+    - Host and router configurations
+    - Applied configurations and commands
+    
+    **Args:**
+        snapshot1_id (str): ID of the first snapshot to compare
+        snapshot2_id (str): ID of the second snapshot to compare
+    
+    **Returns:**
+        Dict containing detailed comparison results and differences
+    
+    **Example:**
+        ```python
+        comparison = await compare_snapshots("snapshot_123", "snapshot_456")
+        differences = comparison.get("comparison", {}).get("differences", {})
+        print(f"Node difference: {differences.get('nodes', {}).get('difference', 0)}")
+        ```
+    """
+    return await make_request("GET", f"/api/snapshots/compare/{snapshot1_id}/{snapshot2_id}")
+
+@mcp.tool()
+async def export_snapshot(snapshot_id: str) -> Dict[str, Any]:
+    """
+    📤 EXPORT SNAPSHOT DATA
+    
+    Exports a snapshot as a complete JSON package for backup or sharing.
+    Includes all snapshot data, metadata, and export information.
+    
+    **Export Contents:**
+    - Complete snapshot data
+    - Metadata and configuration details
+    - Export timestamp and version information
+    - Original snapshot ID for reference
+    
+    **Args:**
+        snapshot_id (str): ID of the snapshot to export
+    
+    **Returns:**
+        Dict containing exported snapshot data and metadata
+    
+    **Example:**
+        ```python
+        export_data = await export_snapshot("snapshot_123")
+        # Save export_data to file or send to another system
+        ```
+    """
+    return await make_request("GET", f"/api/snapshots/export/{snapshot_id}")
+
+# ============================================================================
 # 📁 RESOURCE PROVIDERS
 # ============================================================================
 
@@ -1312,6 +1574,20 @@ async def get_templates_resource() -> str:
         JSON string containing available topology templates
     """
     result = await get_available_templates()
+    return json.dumps(result, indent=2)
+
+@mcp.resource("snapshots://list")
+async def get_snapshots_resource() -> str:
+    """
+    📁 SNAPSHOTS LIST RESOURCE
+    
+    Provides a list of all saved snapshots as a resource.
+    Returns snapshot information in JSON format for easy access.
+    
+    **Returns:**
+        JSON string containing list of all snapshots
+    """
+    result = await list_snapshots()
     return json.dumps(result, indent=2)
 
 # ============================================================================

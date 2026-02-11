@@ -1,0 +1,32 @@
+{
+  "name": "jdbc-sink-metrics",
+  "config": {
+    "connector.class": "io.confluent.connect.jdbc.JdbcSinkConnector",
+    "tasks.max": "3",
+    "topics": "metrics.raw",
+    "connection.url": "jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}",
+    "connection.user": "${POSTGRES_USER}",
+    "connection.password": "${POSTGRES_PASSWORD}",
+    "auto.create": "false",
+    "auto.evolve": "false",
+    "insert.mode": "insert",
+    "batch.size": "1000",
+    "table.name.format": "network_metrics",
+    "pk.mode": "none",
+    "transforms": "ExtractMetrics,SetTimestamp",
+    "transforms.ExtractMetrics.type": "org.apache.kafka.connect.transforms.ExtractField$Value",
+    "transforms.ExtractMetrics.field": "metrics",
+    "transforms.SetTimestamp.type": "org.apache.kafka.connect.transforms.InsertField$Value",
+    "transforms.SetTimestamp.timestamp.field": "ingestion_timestamp",
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    "errors.tolerance": "all",
+    "errors.log.enable": "true",
+    "errors.log.include.messages": "true",
+    "errors.deadletterqueue.topic.name": "metrics.dlq",
+    "errors.deadletterqueue.topic.replication.factor": "1",
+    "errors.deadletterqueue.topic.partitions": "1",
+    "errors.deadletterqueue.context.headers.enable": "true"
+  }
+}

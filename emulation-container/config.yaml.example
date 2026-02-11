@@ -1,0 +1,107 @@
+# Caduceus-Flux Emulation Container Configuration
+# Copy this file to /etc/caduceus-flux/emulation.yaml and adjust settings
+
+# Server Configuration
+server:
+  # gRPC server address
+  host: "0.0.0.0"
+  port: 50051
+
+  # Maximum message sizes (in bytes)
+  max_send_message_length: 104857600  # 100MB
+  max_receive_message_length: 104857600  # 100MB
+
+# Emulation Configuration
+emulation:
+  # Default topology parameters
+  default_log_level: "INFO"
+
+  # Enable wireless support (Mininet-WiFi)
+  wireless_enabled: true
+
+  # Enable container support (requires compatible Docker setup)
+  container_enabled: false
+
+  # State management
+  snapshot_dir: "/var/lib/caduceus-flux/snapshots"
+  config_dir: "/var/lib/caduceus-flux/configs"
+  logs_dir: "/var/lib/caduceus-flux/logs"
+
+# Networking Configuration
+networking:
+  # Enable IP forwarding
+  ip_forward: true
+
+  # Enable IPv6
+  ipv6_enabled: true
+
+  # OVS Configuration
+  ovs:
+    enabled: true
+    db_socket: "/var/run/openvswitch/db.sock"
+    openflow_versions: "OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14,OpenFlow15"
+
+# Routing Daemons
+routing:
+  # FRRouting configuration
+  frr:
+    enabled: true
+    vtysh_enabled: true
+
+    # Enable specific routing protocols
+    zebra: true
+    bgp: true
+    ospf: true
+    ospf6: true
+    rip: true
+    ripng: true
+    isis: true
+    eigrp: true
+
+  # BIRD configuration
+  bird:
+    enabled: false
+    config_file: "/etc/bird/bird.conf"
+
+# Monitoring Configuration
+monitoring:
+  # Collect metrics periodically
+  enabled: true
+
+  # Metrics collection interval (seconds)
+  interval: 5
+
+  # Metrics to collect
+  metrics:
+    - cpu_usage
+    - memory_usage
+    - interface_stats
+    - flow_stats
+
+# Kernel Configuration
+kernel:
+  # Load kernel modules
+  modules_to_load:
+    - "nf_conntrack"
+    - "nf_nat"
+    - "sunrpc"
+    - "mac80211_hwsim"
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "/var/lib/caduceus-flux/logs/emulation.log"
+  max_bytes: 10485760  # 10MB
+  backup_count: 5
+
+# Performance Tuning
+performance:
+  # Maximum emulation instances
+  max_instances: 10
+
+  # Worker threads for gRPC
+  worker_threads: 4
+
+  # Command execution timeout (seconds)
+  command_timeout: 30

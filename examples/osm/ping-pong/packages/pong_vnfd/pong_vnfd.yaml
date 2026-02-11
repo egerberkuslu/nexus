@@ -1,0 +1,57 @@
+vnfd:
+  id: caduceus-pong-vnf
+  product-name: caduceus-pong-vnf
+  provider: caduceus
+  version: "1.0"
+  description: "Pong VNF (dockerized via vimemu)"
+
+  mgmt-cp: pong-cp0
+
+  ext-cpd:
+    - id: pong-cp0
+      int-cpd:
+        cpd: pong-int-cp0
+        vdu-id: pong-vdu
+
+  df:
+    - id: default-df
+      vdu-profile:
+        - id: pong-vdu
+          min-number-of-instances: 1
+      instantiation-level:
+        - id: default-instantiation-level
+          vdu-level:
+            - vdu-id: pong-vdu
+              number-of-instances: 1
+
+  sw-image-desc:
+    - id: netshoot-image
+      name: netshoot
+      image: netshoot
+
+  vdu:
+    - id: pong-vdu
+      name: pong-vdu
+      description: "Pong VDU"
+      sw-image-desc: netshoot-image
+      virtual-compute-desc: pong-vdu-compute
+      virtual-storage-desc:
+        - pong-vdu-storage
+      int-cpd:
+        - id: pong-int-cp0
+          virtual-network-interface-requirement:
+            - name: eth0
+              virtual-interface:
+                type: VIRTIO
+
+  virtual-compute-desc:
+    - id: pong-vdu-compute
+      virtual-cpu:
+        num-virtual-cpu: 1
+      virtual-memory:
+        # `size` is expressed in GiB (ETSI). 0.25 GiB ≈ 256 MiB.
+        size: 0.25
+
+  virtual-storage-desc:
+    - id: pong-vdu-storage
+      size-of-storage: 1

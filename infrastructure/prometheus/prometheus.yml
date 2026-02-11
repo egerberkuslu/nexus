@@ -1,0 +1,170 @@
+# Prometheus Configuration for Caduceus-Flux
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'caduceus-flux'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+          # - alertmanager:9093
+
+# Load rules once and periodically evaluate them
+rule_files:
+  - "alerts/*.yml"
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  # Microservices metrics
+  - job_name: 'topology-service'
+    static_configs:
+      - targets: ['topology-service:8001']
+        labels:
+          service: 'topology'
+          component: 'backend'
+
+  - job_name: 'orchestrator'
+    static_configs:
+      - targets: ['orchestrator:8002']
+        labels:
+          service: 'orchestrator'
+          component: 'backend'
+
+  - job_name: 'protocol-manager'
+    static_configs:
+      - targets: ['protocol-manager:8003']
+        labels:
+          service: 'protocol-manager'
+          component: 'backend'
+
+  - job_name: 'device-manager'
+    static_configs:
+      - targets: ['device-manager:8004']
+        labels:
+          service: 'device-manager'
+          component: 'backend'
+
+  - job_name: 'controller-manager'
+    static_configs:
+      - targets: ['controller-manager:8005']
+        labels:
+          service: 'controller-manager'
+          component: 'backend'
+
+  - job_name: 'snapshot'
+    static_configs:
+      - targets: ['snapshot:8006']
+        labels:
+          service: 'snapshot'
+          component: 'backend'
+
+  - job_name: 'webshell'
+    static_configs:
+      - targets: ['webshell:8007']
+        labels:
+          service: 'webshell'
+          component: 'backend'
+
+  - job_name: 'export-import'
+    static_configs:
+      - targets: ['export-import:8008']
+        labels:
+          service: 'export-import'
+          component: 'backend'
+
+  - job_name: 'topology-generator'
+    static_configs:
+      - targets: ['topology-generator:8009']
+        labels:
+          service: 'topology-generator'
+          component: 'backend'
+
+  - job_name: 'p4-manager'
+    static_configs:
+      - targets: ['p4-manager:8010']
+        labels:
+          service: 'p4-manager'
+          component: 'backend'
+
+  - job_name: 'monitoring'
+    static_configs:
+      - targets: ['monitoring:8011']
+        labels:
+          service: 'monitoring'
+          component: 'backend'
+
+  # Infrastructure services
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx:9113']  # nginx-prometheus-exporter
+        labels:
+          service: 'nginx'
+          component: 'infrastructure'
+
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          service: 'postgres'
+          component: 'infrastructure'
+
+  - job_name: 'rabbitmq'
+    static_configs:
+      - targets: ['rabbitmq:15692']
+        labels:
+          service: 'rabbitmq'
+          component: 'infrastructure'
+
+  - job_name: 'consul'
+    static_configs:
+      - targets: ['consul:8500']
+        labels:
+          service: 'consul'
+          component: 'infrastructure'
+
+  # Emulation metrics (custom exporter)
+  - job_name: 'emulation-metrics'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['monitoring:8011']
+        labels:
+          service: 'emulation'
+          component: 'metrics'
+
+  # Network device metrics (scraped by monitoring service)
+  - job_name: 'network-devices'
+    scrape_interval: 30s
+    honor_labels: true
+    metrics_path: '/api/metrics/devices'
+    static_configs:
+      - targets: ['monitoring:8011']
+        labels:
+          component: 'network'
+
+  # SDN Controllers
+  - job_name: 'osken-controller'
+    static_configs:
+      - targets: ['osken:8080']
+        labels:
+          service: 'osken'
+          component: 'sdn-controller'
+
+  - job_name: 'ryu-controller'
+    static_configs:
+      - targets: ['ryu:8080']
+        labels:
+          service: 'ryu'
+          component: 'sdn-controller'
+

@@ -1,0 +1,235 @@
+CADUCEUS-FLUX TOPOLOGY AND CONTAINER SPAWNING ANALYSIS
+FILE LOCATIONS AND ABSOLUTE PATHS
+=====================================================
+
+Three comprehensive analysis documents have been created:
+
+1. PRIMARY DESIGN GUIDE
+   File: TOPOLOGY_AND_CONTAINER_DESIGN.md
+   Path: /home/ege/Desktop/cadeceus-flux-mininet-from-strach/caduceus-flux/TOPOLOGY_AND_CONTAINER_DESIGN.md
+   Size: 7.5 KB
+   Purpose: Index and design guide with architecture overview
+   Read this first for a high-level understanding
+
+2. DETAILED TECHNICAL ANALYSIS
+   File: TOPOLOGY_ANALYSIS.md
+   Path: /home/ege/Desktop/cadeceus-flux-mininet-from-strach/caduceus-flux/TOPOLOGY_ANALYSIS.md
+   Size: 26 KB
+   Purpose: Comprehensive breakdown of current system with code examples
+   Read this for deep technical understanding
+
+3. IMPLEMENTATION QUICKSTART
+   File: CONTAINER_SPAWNING_GUIDE.md
+   Path: /home/ege/Desktop/cadeceus-flux-mininet-from-strach/caduceus-flux/CONTAINER_SPAWNING_GUIDE.md
+   Size: 6.2 KB
+   Purpose: Quick reference for implementation tasks
+   Use this as your implementation checklist
+
+KEY FILES YOU WILL NEED TO MODIFY
+==================================
+
+MUST MODIFY:
+1. /home/ege/Desktop/cadeceus-flux-mininet-from-strach/caduceus-flux/backend/shared/models/topology.py
+   Lines 53-72: Topology class
+   Task: Add emulation_id, container_host columns
+
+2. /home/ege/Desktop/cadeceus-flux-mininet-from-strach/caduceus-flux/backend/services/orchestrator/main.py
+   Lines 1422-1640: add_device_to_emulation() function
+   Task: Capture and persist container_id from gRPC response
+
+3. /home/ege/Desktop/cadeceus-flux-mininet-from-strach/caduceus-flux/backend/proto/emulation.proto
+   Lines 174-181: AddDockerContainerRequest message
+   Task: Extend DeviceResponse to return container metadata
+
+SHOULD MODIFY:
+4. /home/ege/Desktop/cadeceus-flux-mininet-from-strach/caduceus-flux/backend/services/orchestrator/main.py
+   Lines 244-264: record_active_emulation() function
+   Task: Add device_container_map to Redis record
+
+5. /home/ege/Desktop/cadeceus-flux-mininet-from-strach/caduceus-flux/backend/services/orchestrator/main.py
+   Lines 689-776: start_emulation_endpoint() function
+   Task: Update topology.emulation_id on start
+
+6. /home/ege/Desktop/cadeceus-flux-mininet-from-strach/caduceus-flux/backend/services/topology/main.py
+   Various endpoints
+   Task: Handle emulation_id updates
+
+OPTIONAL:
+7. /home/ege/Desktop/cadeceus-flux-mininet-from-strach/caduceus-flux/backend/shared/schemas/topology_schema.py
+   Lines 127-158: TopologyResponse schema
+   Task: Update to include container metadata
+
+REFERENCE FILES (DO NOT MODIFY):
+================================
+
+Proto Definitions:
+- /home/ege/Desktop/cadeceus-flux-mininet-from-strach/caduceus-flux/backend/proto/emulation.proto
+
+Database Schemas:
+- /home/ege/Desktop/cadeceus-flux-mininet-from-strach/caduceus-flux/backend/shared/schemas/topology_schema.py
+
+Orchestrator Main Service:
+- /home/ege/Desktop/cadeceus-flux-mininet-from-strach/caduceus-flux/backend/services/orchestrator/main.py
+
+Topology Service:
+- /home/ege/Desktop/cadeceus-flux-mininet-from-strach/caduceus-flux/backend/services/topology/main.py
+
+Database Models:
+- /home/ege/Desktop/cadeceus-flux-mininet-from-strach/caduceus-flux/backend/shared/models/topology.py
+
+Dependencies:
+- /home/ege/Desktop/cadeceus-flux-mininet-from-strach/caduceus-flux/backend/requirements.txt
+- /home/ege/Desktop/cadeceus-flux-mininet-from-strach/caduceus-flux/backend/services/orchestrator/requirements.txt
+
+READING ORDER
+=============
+
+1. Start with: TOPOLOGY_AND_CONTAINER_DESIGN.md
+   → Gets you familiar with architecture and gaps
+
+2. Then read: TOPOLOGY_ANALYSIS.md
+   → Deep dive into current implementation
+   → Understand all the code flows
+
+3. Use as reference: CONTAINER_SPAWNING_GUIDE.md
+   → Checklist for implementation
+   → Quick lookups during coding
+
+4. Refer to: ANALYSIS_FILE_LOCATIONS.txt (this file)
+   → Keep track of all file paths
+   → Know exactly what to modify
+
+CRITICAL CODE LOCATIONS QUICK REFERENCE
+========================================
+
+Topology Creation/Storage:
+  - PostgreSQL: /backend/shared/models/topology.py:53-72
+  - API Endpoints: /backend/services/topology/main.py:170-340
+
+Emulation Start:
+  - Endpoint: /backend/services/orchestrator/main.py:689-776
+  - gRPC Client: /backend/services/orchestrator/main.py:314-393
+
+Container Management:
+  - Add Device: /backend/services/orchestrator/main.py:1422-1640
+  - Remove Device: /backend/services/orchestrator/main.py:1642-1680
+  - Docker Handling: /backend/services/orchestrator/main.py:1568-1608
+
+Active Emulation Tracking:
+  - Redis Store: /backend/services/orchestrator/main.py:105-145
+  - Record Function: /backend/services/orchestrator/main.py:244-264
+  - Storage Key: "active_emulations" (hash)
+
+gRPC Communication:
+  - Proto Definitions: /backend/proto/emulation.proto:174-181
+  - Device Request: /backend/proto/emulation.proto:386-399
+  - Response Messages: /backend/proto/emulation.proto:66-93
+
+NODE ID MAPPING
+===============
+
+Current (In-Memory Only):
+  node_id_to_runtime = {
+    'uuid-1': 'h1',                    # Node UUID → Runtime name
+    'web-app': 'h1'                    # Display name → Runtime name
+  }
+
+MISSING (Need to Add):
+  device_container_map = {
+    'uuid-1': 'sha256:abc...',         # Node UUID → Docker container ID
+    'uuid-2': 'sha256:def...'
+  }
+
+Storage Locations:
+  - In-Memory: gRPCClient.node_id_to_runtime (lost on restart)
+  - Redis: active_emulations hash value (ephemeral)
+  - PostgreSQL: Node.properties.container_id (persistent)
+
+DATABASE SCHEMA CHANGES
+=======================
+
+Add to Topology table:
+  - emulation_id VARCHAR(36) - Links to active emulation
+  - container_host VARCHAR(255) - Host running emulation
+  - created_container_count INT - Tracking counter
+
+No changes needed to Node/Link/Controller tables.
+Use Node.properties JSON for container metadata:
+  - container_id
+  - container_name
+  - container_ip
+  - container_status
+  - created_at
+
+REDIS DATA STRUCTURES
+=====================
+
+Current (working):
+  active_emulations:hash
+    - Field: topology_id
+    - Value: JSON {emulation_id, status, ...}
+
+Enhanced (add to value):
+  {
+    "device_container_map": {node_id → container_id},
+    "container_host": "server_name"
+  }
+
+API ENDPOINTS TO USE
+====================
+
+Create Topology:
+  POST /api/topologies
+
+Start Emulation:
+  POST /api/emulation/start
+  {topology_id, options}
+
+Add Device Dynamically:
+  POST /api/topologies/{topology_id}/apply
+  {changes: {add_devices: [...]}}
+
+List Devices:
+  GET /api/emulation/devices?device_type=container
+
+Stop Emulation:
+  POST /api/emulation/stop/{emulation_id}
+
+Get Node Properties:
+  GET /api/topologies/{topology_id}/nodes/{node_id}
+
+TESTING APPROACH
+================
+
+Phase 1: Database Layer
+  - Add columns to Topology table
+  - Verify migration runs
+  - Test backward compatibility
+
+Phase 2: Container Metadata
+  - Modify add_device_to_emulation()
+  - Test container creation with metadata capture
+  - Verify Node.properties updated
+
+Phase 3: gRPC Enhancement
+  - Extend proto definitions
+  - Update emulation container backend
+  - Test response handling in orchestrator
+
+Phase 4: State Recovery
+  - Test service restart scenarios
+  - Verify container mappings recovered
+  - Test orphaned container cleanup
+
+DEPENDENCIES AVAILABLE
+======================
+
+Already Installed (in requirements.txt):
+  - docker==7.0.0 (NOT currently used in orchestrator)
+  - grpcio==1.59.0 (actively used)
+  - protobuf==4.25.0 (actively used)
+  - redis==5.0.1 (actively used)
+  - sqlalchemy==2.0.23 (actively used)
+
+No new dependencies required for basic implementation.
+

@@ -1,0 +1,38 @@
+[Unit]
+Description=Caduceus-Flux Emulation Container (gRPC Server)
+Documentation=https://github.com/caduceus-flux/caduceus-flux
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/grpc_agent
+Environment="PYTHONUNBUFFERED=1"
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Read configuration from /etc/caduceus-flux/emulation.conf
+EnvironmentFile=-/etc/caduceus-flux/emulation.conf
+
+# Enable network namespace support
+ExecStartPre=mount --make-rshared /run
+ExecStartPre=/opt/caduceus-emulation/scripts/setup-networking.sh
+
+# Start the gRPC server
+ExecStart=/usr/bin/python3 /opt/grpc_agent/server.py
+
+# Cleanup on stop
+ExecStop=/opt/caduceus-emulation/scripts/cleanup.sh
+
+# Service behavior
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=caduceus-emulation
+
+# Resource limits
+MemoryMax=8G
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target

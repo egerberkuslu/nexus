@@ -1,0 +1,77 @@
+# Prometheus Alerting Rules for Microservices
+
+groups:
+  - name: service_alerts
+    interval: 30s
+    rules:
+      # Service down
+      - alert: ServiceDown
+        expr: up{job=~".*-service|orchestrator|monitoring"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: microservice
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Microservice {{ $labels.job }} has been down for more than 1 minute"
+
+      # High API latency
+      - alert: HighAPILatency
+        expr: |
+          histogram_quantile(0.95, 
+            rate(http_request_duration_seconds_bucket[5m])
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High API latency on {{ $labels.service }}"
+          description: "95th percentile latency is {{ $value }}s on {{ $labels.service }}"
+
+      # High error rate
+      - alert: HighErrorRate
+        expr: |
+          (sum(rate(http_requests_total{status=~"5.."}[5m])) by (service) 
+          / sum(rate(http_requests_total[5m])) by (service)) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High error rate on {{ $labels.service }}"
+          description: "Error rate is {{ $value | humanizePercentage }} on service {{ $labels.service }}"
+
+      # Database connection pool exhausted
+      - alert: DatabaseConnectionPoolExhausted
+        expr: db_connection_pool_active >= db_connection_pool_max
+        for: 2m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "Database connection pool exhausted on {{ $labels.service }}"
+          description: "All database connections are in use on {{ $labels.service }}"
+
+      # RabbitMQ queue growing
+      - alert: RabbitMQQueueGrowing
+        expr: rabbitmq_queue_messages > 1000
+        for: 10m
+        labels:
+          severity: warning
+          component: messaging
+        annotations:
+          summary: "RabbitMQ queue {{ $labels.queue }} is growing"
+          description: "Queue {{ $labels.queue }} has {{ $value }} messages"
+
+      # Consul service unhealthy
+      - alert: ConsulServiceUnhealthy
+        expr: consul_health_service_status{status!="passing"} == 1
+        for: 2m
+        labels:
+          severity: warning
+          component: service-discovery
+        annotations:
+          summary: "Consul reports {{ $labels.service }} as unhealthy"
+          description: "Service {{ $labels.service }} health check is failing"
+

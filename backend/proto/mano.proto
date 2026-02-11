@@ -1,0 +1,119 @@
+syntax = "proto3";
+
+package mano;
+
+// Minimal MANO gRPC API (OSM-like lifecycle primitives).
+// This is intentionally small; we can extend with VNFD/NSD/VIM/VNFM APIs later.
+
+service ManoService {
+  rpc Ping(PingRequest) returns (PingResponse);
+
+  // Network Service (NS) instance lifecycle (NFVO-ish).
+  rpc CreateNsInstance(CreateNsInstanceRequest) returns (NsInstance);
+  rpc GetNsInstance(GetNsInstanceRequest) returns (NsInstance);
+  rpc ListNsInstances(ListNsInstancesRequest) returns (ListNsInstancesResponse);
+  rpc TerminateNsInstance(TerminateNsInstanceRequest) returns (OperationStatus);
+
+  // VNFM-ish: VNF instances inside an NS instance.
+  rpc CreateVnfInstance(CreateVnfInstanceRequest) returns (VnfInstance);
+  rpc ListVnfInstances(ListVnfInstancesRequest) returns (ListVnfInstancesResponse);
+  rpc ExecVnfCommand(ExecVnfCommandRequest) returns (ExecVnfCommandResponse);
+}
+
+message PingRequest {
+  string message = 1;
+}
+
+message PingResponse {
+  string message = 1;
+  int64 server_time_ms = 2;
+}
+
+message NsInstance {
+  string id = 1;
+  string name = 2;
+  string topology_id = 3;
+  string status = 4; // e.g. INSTANTIATING/RUNNING/TERMINATING/TERMINATED/ERROR
+  int64 created_at_ms = 5;
+  int64 updated_at_ms = 6;
+  string message = 7;
+  string nsd_id = 8;
+  string emulation_id = 9;
+}
+
+message CreateNsInstanceRequest {
+  string name = 1;
+  string topology_id = 2;
+  string nsd_id = 3; // reserved for future catalog integration
+}
+
+message GetNsInstanceRequest {
+  string id = 1;
+}
+
+message ListNsInstancesRequest {
+  string topology_id = 1; // optional filter
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message ListNsInstancesResponse {
+  repeated NsInstance items = 1;
+}
+
+message TerminateNsInstanceRequest {
+  string id = 1;
+  string reason = 2;
+}
+
+message OperationStatus {
+  bool ok = 1;
+  string message = 2;
+}
+
+message VnfInstance {
+  string id = 1;
+  string ns_instance_id = 2;
+  string vnfd_id = 3;
+  string name = 4;
+  string device_type = 5;
+  string device_name = 6;
+  string status = 7;
+  string message = 8;
+  int64 created_at_ms = 9;
+  int64 updated_at_ms = 10;
+}
+
+message CreateVnfInstanceRequest {
+  string ns_instance_id = 1;
+  string vnfd_id = 2;
+  string name = 3;
+  string device_type = 4; // host/switch/router/ap/station/container/p4switch...
+  string device_name = 5; // optional override
+  string properties_json = 6; // JSON object as string (keeps proto minimal)
+  bool dry_run = 7;
+}
+
+message ListVnfInstancesRequest {
+  string ns_instance_id = 1; // optional filter
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message ListVnfInstancesResponse {
+  repeated VnfInstance items = 1;
+}
+
+message ExecVnfCommandRequest {
+  string vnf_instance_id = 1;
+  string command = 2;
+  int32 timeout_seconds = 3;
+}
+
+message ExecVnfCommandResponse {
+  bool ok = 1;
+  string stdout = 2;
+  string stderr = 3;
+  int32 exit_code = 4;
+  string message = 5;
+}

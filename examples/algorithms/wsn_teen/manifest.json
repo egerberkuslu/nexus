@@ -1,0 +1,33 @@
+{
+  "name": "wsn-teen",
+  "version": "1.0.0",
+  "description": "TEEN - Threshold-sensitive Energy Efficient sensor Network (reactive protocol)",
+  "node_class": "algorithm:TEENNode",
+  "transport": "udp",
+  "listen_port": 50000,
+  "ip_family": "auto",
+  "wsn_config": {
+    "protocol": "teen",
+    "p": 0.05,
+    "hard_threshold": 50.0,
+    "soft_threshold": 5.0,
+    "max_rounds": 2000,
+    "packet_size": 4000,
+    "initial_energy": 0.5
+  },
+  "default_params": {
+    "p": 0.05,
+    "hard_threshold": 50.0,
+    "soft_threshold": 5.0,
+    "event_probability": 0.1,
+    "sensed_attribute": "temperature",
+    "max_rounds": 2000,
+    "packet_size": 4000,
+    "initial_energy": 0.5,
+    "discovery_seconds": 2.0,
+    "adv_listen_time": 1.5,
+    "join_listen_time": 1.0,
+    "frame_time": 2.0,
+    "round_time": 5.0
+  }
+}

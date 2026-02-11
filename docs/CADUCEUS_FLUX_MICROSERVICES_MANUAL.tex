@@ -1,0 +1,416 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{geometry}
+\geometry{margin=1in}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+\title{Caduceus-Flux Microservices Manual (Textbook-Style, Evidence-Based)}
+\author{Reverse-Engineering Technical Manual}
+\date{2026-01-27}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================================
+% SECTION 1: SCOPE AND EVIDENCE RULES
+% ============================================================================
+\section{Scope and Evidence Rules}
+
+Bu dokuman yalnizca kod ve konfig dosyalarinda gorulen bulgulara dayanir. Her teknik iddia icin dosya yolu ve satir numarasi verilir. Kanit formatimiz: \texttt{dosya/yolu}, lines X--Y. Eger bir ozellik kod/konfig icinde dogrudan gorunmuyorsa, bu dokumanda "var" denmez.
+
+% ============================================================================
+% SECTION 2: MICROSERVICE CATALOG
+% ============================================================================
+\section{Microservice Catalog}
+
+\begin{longtable}{p{4cm}p{2cm}p{5cm}p{4cm}}
+\toprule
+\textbf{Service} & \textbf{Port(s)} & \textbf{Container} & \textbf{Primary Role} \\
+\midrule
+Topology Service & 8001 & caduceus-topology-service & Topology CRUD, import/export, versioning \\
+Orchestrator Service & 8002 & caduceus-orchestrator-service & Emulation lifecycle, infra orchestration \\
+Protocol Manager & 8003 & caduceus-protocol-manager-service & Protocol plugins + hot-swap \\
+Device Manager & 8004 & caduceus-device-manager-service & Runtime device ops \\
+Controller Manager & 8005 & caduceus-controller-manager-service & SDN controller lifecycle \\
+Snapshot Service & 8006 & caduceus-snapshot-service & Snapshot/restore + scheduling \\
+Webshell Service & 8007 & caduceus-webshell-service & Interactive Mininet CLI + exec \\
+Export/Import Service & 8008 & caduceus-export-import-service & Multi-format export/import \\
+Topology Generator & 8009 & caduceus-topology-generator-service & Auto topology generation \\
+P4 Manager & 8010 & caduceus-p4-manager-service & P4 compile + BMv2 mgmt \\
+Monitoring Service & 8011 & caduceus-monitoring-service & Metrics to Prometheus/Influx \\
+MCP Server & 8012 & caduceus-mcp-server & Unified API gateway \\
+Metrics Collector & 8013 & caduceus-metrics-collector-service & gRPC metrics -> Kafka \\
+AI Gateway & 8014 & caduceus-ai-gateway-service & LLM gateway + MCP tooling \\
+MANO Service & 8015 (HTTP), 50052 (gRPC) & caduceus-mano-service & NFV MANO core \\
+Config Service & 8016 & caduceus-config-service & Control-config orchestration \\
+Decision Engine & 8017 & caduceus-decision-engine-service & Streaming decisions from metrics \\
+MCP Tool Hub & 8018 & caduceus-mcp-tool-hub-service & MCP registry + safe proxy \\
+OSM Connector & 8020 & caduceus-osm-connector-service & ETSI OSM adapter/proxy \\
+VIM Emulator & 6001 & caduceus-vimemu-service & OpenStack-like VIM emulation \\
+MCP Proxy (generic) & 8000 & mcp-\{service\} & Read-only HTTP proxy shim \\
+Emulation Container & 50051 (gRPC) & caduceus-emu-\{topology\} & Mininet/Containernet/Mininet-WiFi runtime \\
+\bottomrule
+\end{longtable}
+
+\textbf{Evidence:} \texttt{docker-compose.yml}, lines 1--1813; \texttt{backend/services/mcp\_proxy/mcp\_proxy\_app/app.py}, lines 21--40; \texttt{emulation-container/Dockerfile}, lines 124--129; \texttt{backend/services/orchestrator/orchestrator\_app/app.py}, lines 3143--3242.
+
+% ============================================================================
+% SECTION 3: CORE EMULATION AND TOPOLOGY SERVICES
+% ============================================================================
+\section{Core Emulation and Topology Services}
+
+% ---------------------------------------------------------------------------
+\subsection{Topology Service (Port 8001)}
+
+\textbf{Purpose.} Topology CRUD, JSON import/export, and versioning for projects/topologies. \texttt{backend/services/topology/topology\_app/app.py}, lines 1--4.
+
+\textbf{Interfaces.}
+\begin{itemize}[leftmargin=*]
+\item \texttt{POST /api/projects}, \texttt{GET /api/projects}: project CRUD. \texttt{backend/services/topology/topology\_app/app.py}, lines 303--338.
+\item \texttt{POST /api/topologies}, \texttt{GET /api/topologies}: topology CRUD. \texttt{backend/services/topology/topology\_app/app.py}, lines 398--405 and 619--620 (routing references).
+\item \texttt{POST /api/topologies/\{id\}/apply}: staged diff application. \texttt{backend/services/topology/topology\_app/app.py}, lines 793--807.
+\end{itemize}
+
+\textbf{How it works.} Persists projects/topologies/nodes/links in PostgreSQL and publishes RabbitMQ events; broadcasts per-topology updates via WebSocket manager. \texttt{backend/services/topology/topology\_app/app.py}, lines 24--55, 141--181, 328--331, 488--497.
+
+\textbf{Dependencies.} PostgreSQL, RabbitMQ, Consul, and Docker socket for cleanup. \texttt{backend/services/topology/topology\_app/app.py}, lines 24--55 and 82--90; \texttt{docker-compose.yml}, lines 269--307.
+
+\textbf{Typical usage (step-by-step).}
+\begin{enumerate}[leftmargin=*]
+\item Create a project with \texttt{POST /api/projects}.
+\item Create a topology with \texttt{POST /api/topologies}.
+\item Apply staged updates with \texttt{POST /api/topologies/\{id\}/apply} when you want atomic changes.
+\end{enumerate}
+
+\textbf{Evidence.} \texttt{backend/services/topology/topology\_app/app.py}, lines 1--4, 24--55, 141--181, 303--338, 398--405, 793--807; \texttt{docker-compose.yml}, lines 269--307.
+
+% ---------------------------------------------------------------------------
+\subsection{Orchestrator Service (Port 8002)}
+
+\textbf{Purpose.} Emulation lifecycle management and coordination with the emulation container via gRPC. \texttt{backend/services/orchestrator/orchestrator\_app/app.py}, lines 1--4 and 32--34.
+
+\textbf{Interfaces.}
+\begin{itemize}[leftmargin=*]
+\item \texttt{POST /api/emulation/start}: start a topology emulation. \texttt{backend/services/orchestrator/orchestrator\_app/app.py}, lines 9484--9490.
+\item \texttt{GET /api/emulation/active}: list active emulations. \texttt{backend/services/orchestrator/orchestrator\_app/app.py}, lines 10866--10871.
+\item \texttt{GET /api/emulation/shell/\{id\}}: fetch shell/device metadata. \texttt{backend/services/orchestrator/orchestrator\_app/app.py}, lines 10781--10863.
+\item \texttt{POST /api/tests/run}: run built-in test suites. \texttt{backend/services/orchestrator/orchestrator\_app/app.py}, lines 1767--1809.
+\item \texttt{/api/pcap/start}, \texttt{/api/pcap/stop}: packet capture control. \texttt{backend/services/orchestrator/orchestrator\_core/pcap.py}, lines 62--119 and 155--199.
+\item \texttt{GET /api/infrastructure/jupyter}: obtain Jupyter token/port. \texttt{backend/services/orchestrator/orchestrator\_app/app.py}, lines 8742--8786.
+\end{itemize}
+
+\textbf{How it works.} Spawns one emulation container per topology, allocates a gRPC port, and stores runtime state in Redis. Uses per-topology locks to prevent concurrent start conflicts and names per-topology infra networks/containers with a prefix. \texttt{backend/services/orchestrator/orchestrator\_app/app.py}, lines 3143--3242, 2922--2941, 2951--2962, 2690--2703.
+
+\textbf{Dependencies.} Redis, RabbitMQ, Consul, Docker socket, and shared volumes. \texttt{backend/services/orchestrator/orchestrator\_app/app.py}, lines 2922--2941 and 3143--3242; \texttt{docker-compose.yml}, lines 307--356.
+
+\textbf{Typical usage (step-by-step).}
+\begin{enumerate}[leftmargin=*]
+\item Start emulation with \texttt{POST /api/emulation/start} (providing topology\_id).
+\item Check status with \texttt{GET /api/emulation/active} or \texttt{GET /api/emulation/shell/\{id\}}.
+\item Use Webshell or Device Manager for runtime operations (see relevant sections).
+\end{enumerate}
+
+\textbf{Evidence.} \texttt{backend/services/orchestrator/orchestrator\_app/app.py}, lines 1--4, 32--34, 2690--2703, 2922--2962, 3143--3242, 9484--9490, 10781--10863, 10866--10871, 1767--1809, 8742--8786; \texttt{backend/services/orchestrator/orchestrator\_core/pcap.py}, lines 62--119 and 155--199; \texttt{docker-compose.yml}, lines 307--356.
+
+% ---------------------------------------------------------------------------
+\subsection{Emulation Container (gRPC Runtime)}
+
+\textbf{Purpose.} Provides the unified runtime for Mininet, Mininet-WiFi, and Containernet, with BMv2 (P4) support, exposing gRPC control. \texttt{emulation-container/Dockerfile}, lines 1--66.
+
+\textbf{Interfaces.} gRPC service \texttt{EmulationService} includes lifecycle, device, link, protocol, monitoring, and Mininet CLI RPCs. \texttt{backend/proto/emulation.proto}, lines 6--63.
+
+\textbf{How it works.} The gRPC agent imports Mininet/Containernet/Mininet-WiFi classes and manages devices, links, and P4 switches. \texttt{emulation-container/grpc\_agent/device\_handler.py}, lines 18--60; \texttt{emulation-container/grpc\_agent/p4\_switch.py}, lines 1--109.
+
+\textbf{Snapshot capabilities.} Hybrid snapshots combine topology-only, Docker commit, CRIU live, and full hybrid modes. \texttt{emulation-container/grpc\_agent/snapshot\_manager.py}, lines 1--55; \texttt{emulation-container/grpc\_agent/criu\_handler.py}, lines 535--665.
+
+\textbf{Evidence.} \texttt{emulation-container/Dockerfile}, lines 1--66 and 124--129; \texttt{backend/proto/emulation.proto}, lines 6--63; \texttt{emulation-container/grpc\_agent/device\_handler.py}, lines 18--60; \texttt{emulation-container/grpc\_agent/p4\_switch.py}, lines 1--109; \texttt{emulation-container/grpc\_agent/snapshot\_manager.py}, lines 1--55; \texttt{emulation-container/grpc\_agent/criu\_handler.py}, lines 535--665.
+
+% ---------------------------------------------------------------------------
+\subsection{Device Manager Service (Port 8004)}
+
+\textbf{Purpose.} Runtime device operations (add, remove, update) on running emulations. \texttt{backend/services/device\_manager/device\_manager\_app/app.py}, lines 1--4.
+
+\textbf{Interfaces.}
+\begin{itemize}[leftmargin=*]
+\item \texttt{POST /api/devices}: add device to running emulation (supports host/switch/router/ap/station/container/p4switch). \texttt{backend/services/device\_manager/device\_manager\_app/app.py}, lines 385--395.
+\item \texttt{GET /api/devices}: list devices. \texttt{backend/services/device\_manager/device\_manager\_app/app.py}, lines 468--484.
+\item \texttt{PUT /api/devices/\{name\}}: update device properties. \texttt{backend/services/device\_manager/device\_manager\_app/app.py}, lines 496--506.
+\end{itemize}
+
+\textbf{How it works.} Resolves the active topology via the Orchestrator, forwards device add requests to \texttt{/api/emulation/devices/add}, and persists runtime state in PostgreSQL. \texttt{backend/services/device\_manager/device\_manager\_app/app.py}, lines 65--75 and 408--449.
+
+\textbf{Dependencies.} Orchestrator HTTP API, PostgreSQL, RabbitMQ, Consul, and gRPC configuration. \texttt{backend/services/device\_manager/device\_manager\_app/app.py}, lines 25--59; \texttt{docker-compose.yml}, lines 383--410.
+
+\textbf{Evidence.} \texttt{backend/services/device\_manager/device\_manager\_app/app.py}, lines 1--4, 25--59, 65--75, 385--449, 468--506; \texttt{docker-compose.yml}, lines 383--410.
+
+% ---------------------------------------------------------------------------
+\subsection{Protocol Manager Service (Port 8003)}
+
+\textbf{Purpose.} Protocol management with runtime hot-swap support. \texttt{backend/services/protocol\_manager/protocol\_manager\_app/app.py}, lines 353--361.
+
+\textbf{Interfaces.}
+\begin{itemize}[leftmargin=*]
+\item \texttt{POST /api/protocols/switch}: switch from one protocol to another without restart. \texttt{backend/services/protocol\_manager/protocol\_manager\_app/app.py}, lines 355--440.
+\item \texttt{POST /api/protocols/validate}: config validation. \texttt{backend/services/protocol\_manager/protocol\_manager\_app/app.py}, lines 457--468.
+\end{itemize}
+
+\textbf{How it works.} Uses a plugin base class that defines configure/enable/disable/status and switch hooks. \texttt{backend/shared/plugins/protocol\_plugin.py}, lines 1--145.
+
+\textbf{Evidence.} \texttt{backend/services/protocol\_manager/protocol\_manager\_app/app.py}, lines 353--440 and 457--468; \texttt{backend/shared/plugins/protocol\_plugin.py}, lines 1--145.
+
+% ---------------------------------------------------------------------------
+\subsection{Controller Manager Service (Port 8005)}
+
+\textbf{Purpose.} SDN controller lifecycle management (OS-Ken, Ryu, OpenDaylight, ONOS, custom). \texttt{backend/services/controller\_manager/controller\_manager\_app/app.py}, lines 1--4 and 223--252.
+
+\textbf{Interfaces.} \texttt{POST /api/controllers}: create/start controller. \texttt{backend/services/controller\_manager/controller\_manager\_app/app.py}, lines 223--253.
+
+\textbf{How it works.} Starts OS-Ken and Ryu controllers in Docker containers; registers custom controllers as external. \texttt{backend/services/controller\_manager/controller\_manager\_app/app.py}, lines 103--149 and 159--166.
+
+\textbf{Dependencies.} Docker socket, RabbitMQ, Consul. \texttt{backend/services/controller\_manager/controller\_manager\_app/app.py}, lines 45--52; \texttt{docker-compose.yml}, lines 411--433.
+
+\textbf{Evidence.} \texttt{backend/services/controller\_manager/controller\_manager\_app/app.py}, lines 1--4, 45--52, 103--166, 223--253; \texttt{docker-compose.yml}, lines 411--433.
+
+% ---------------------------------------------------------------------------
+\subsection{Webshell Service (Port 8007)}
+
+\textbf{Purpose.} Provides interactive Mininet CLI over WebSocket and direct command execution in namespaces. \texttt{backend/services/webshell/webshell\_app/app.py}, lines 576--584 and 626--636.
+
+\textbf{Interfaces.}
+\begin{itemize}[leftmargin=*]
+\item \texttt{WS /ws/mininet-cli}: interactive Mininet CLI session. \texttt{backend/services/webshell/webshell\_app/app.py}, lines 576--584.
+\item \texttt{GET /api/devices/\{device\}/execute}: run a command in a device namespace. \texttt{backend/services/webshell/webshell\_app/app.py}, lines 626--636.
+\end{itemize}
+
+\textbf{Dependencies.} Redis (session state) and Docker socket. \texttt{docker-compose.yml}, lines 471--495.
+
+\textbf{Evidence.} \texttt{backend/services/webshell/webshell\_app/app.py}, lines 576--584 and 626--636; \texttt{docker-compose.yml}, lines 471--495.
+
+% ============================================================================
+% SECTION 4: SNAPSHOT, EXPORT/IMPORT, GENERATION
+% ============================================================================
+\section{Snapshot, Export/Import, and Topology Generation}
+
+% ---------------------------------------------------------------------------
+\subsection{Snapshot Service (Port 8006)}
+
+\textbf{Purpose.} Snapshot/restore service with Docker checkpoint support and hybrid PostgreSQL + MongoDB storage. \texttt{backend/services/snapshot/snapshot\_app/app.py}, lines 1--4 and 28--30.
+
+\textbf{How it works.} Starts a scheduler on startup and loads schedules from DB. \texttt{backend/services/snapshot/snapshot\_app/app.py}, lines 65--85.
+
+\textbf{Scheduling.} Cron-based scheduling via APScheduler with coalescing and misfire handling. \texttt{backend/services/snapshot/scheduler/snapshot\_scheduler.py}, lines 1--48.
+
+\textbf{Snapshot types (runtime).} Topology-only, Docker commit, CRIU live, and hybrid full snapshots. \texttt{emulation-container/grpc\_agent/snapshot\_manager.py}, lines 31--55.
+
+\textbf{Dependencies.} PostgreSQL, MongoDB, RabbitMQ, Consul, Docker socket. \texttt{docker-compose.yml}, lines 434--470.
+
+\textbf{Evidence.} \texttt{backend/services/snapshot/snapshot\_app/app.py}, lines 1--4, 28--30, 65--85; \texttt{backend/services/snapshot/scheduler/snapshot\_scheduler.py}, lines 1--48; \texttt{emulation-container/grpc\_agent/snapshot\_manager.py}, lines 31--55; \texttt{docker-compose.yml}, lines 434--470.
+
+% ---------------------------------------------------------------------------
+\subsection{Export/Import Service (Port 8008)}
+
+\textbf{Purpose.} Multi-format topology export (Mininet, Mininet-WiFi, Containernet, GraphML, JSON, YAML). \texttt{backend/services/export\_import/export\_import\_app/app.py}, lines 980--1003 and 991--1003.
+
+\textbf{Interfaces.} \texttt{POST /api/export} with selected format. \texttt{backend/services/export\_import/export\_import\_app/app.py}, lines 991--1003.
+
+\textbf{Evidence.} \texttt{backend/services/export\_import/export\_import\_app/app.py}, lines 980--1003.
+
+% ---------------------------------------------------------------------------
+\subsection{Topology Generator Service (Port 8009)}
+
+\textbf{Purpose.} Auto-generates topologies using algorithms (tree, linear, mesh, ring, star, fat-tree). \texttt{backend/services/topology\_generator/topology\_generator\_app/app.py}, lines 1--4 and 618--653.
+
+\textbf{Interfaces.}
+\begin{itemize}[leftmargin=*]
+\item \texttt{POST /api/generate}: generate a topology by algorithm. \texttt{backend/services/topology\_generator/topology\_generator\_app/app.py}, lines 618--653.
+\item \texttt{GET /api/templates}: list templates and parameters. \texttt{backend/services/topology\_generator/topology\_generator\_app/app.py}, lines 680--704.
+\end{itemize}
+
+\textbf{Evidence.} \texttt{backend/services/topology\_generator/topology\_generator\_app/app.py}, lines 1--4, 607--614, 618--653, 680--704.
+
+% ============================================================================
+% SECTION 5: PROGRAMMABLE DATA PLANE
+% ============================================================================
+\section{Programmable Data Plane (P4)}
+
+% ---------------------------------------------------------------------------
+\subsection{P4 Manager Service (Port 8010)}
+
+\textbf{Purpose.} Compiles P4 programs and manages BMv2 switches. \texttt{backend/services/p4\_manager/p4\_manager\_app/app.py}, lines 1--4.
+
+\textbf{Interfaces.}
+\begin{itemize}[leftmargin=*]
+\item \texttt{POST /api/p4/programs/compile}: compile a P4 program. \texttt{backend/services/p4\_manager/p4\_manager\_app/app.py}, lines 405--458.
+\item \texttt{POST /api/p4/switches}: create BMv2 switch with compiled program. \texttt{backend/services/p4\_manager/p4\_manager\_app/app.py}, lines 537--555.
+\end{itemize}
+
+\textbf{Runtime integration.} BMv2 switch implementation runs \texttt{simple\_switch\_grpc} in Mininet switch namespace. \texttt{emulation-container/grpc\_agent/p4\_switch.py}, lines 1--109.
+
+\textbf{Evidence.} \texttt{backend/services/p4\_manager/p4\_manager\_app/app.py}, lines 1--4, 405--458, 537--555; \texttt{emulation-container/grpc\_agent/p4\_switch.py}, lines 1--109.
+
+% ============================================================================
+% SECTION 6: OBSERVABILITY AND STREAMING ANALYTICS
+% ============================================================================
+\section{Observability and Streaming Analytics}
+
+% ---------------------------------------------------------------------------
+\subsection{Monitoring Service (Port 8011)}
+
+\textbf{Purpose.} Collects and exports metrics to Prometheus and InfluxDB, with optional per-topology Influx targets. \texttt{backend/services/monitoring/monitoring\_app/app.py}, lines 1--4 and 74--90.
+
+\textbf{How it works.} Uses gRPC to query the emulation container and writes to InfluxDB; optional Kafka ingestion. \texttt{backend/services/monitoring/monitoring\_app/app.py}, lines 92--95.
+
+\textbf{Evidence.} \texttt{backend/services/monitoring/monitoring\_app/app.py}, lines 1--4, 74--95.
+
+% ---------------------------------------------------------------------------
+\subsection{Metrics Collector Service (Port 8013)}
+
+\textbf{Purpose.} Bridges gRPC metrics streaming from emulation container to Kafka. \texttt{backend/services/metrics\_collector/metrics\_collector\_app/app.py}, lines 1--4.
+
+\textbf{How it works.} Configurable collection interval and Kafka enablement. \texttt{backend/services/metrics\_collector/metrics\_collector\_app/app.py}, lines 48--57.
+
+\textbf{Evidence.} \texttt{backend/services/metrics\_collector/metrics\_collector\_app/app.py}, lines 1--4 and 48--57.
+
+% ---------------------------------------------------------------------------
+\subsection{Decision Engine Service (Port 8017)}
+
+\textbf{Purpose.} Consumes processed metrics from Kafka and runs parallel decision tasks (anomaly, security, routing, MANO). \texttt{backend/services/decision\_engine/decision\_engine\_app/app.py}, lines 1--10.
+
+\textbf{Interfaces.} Uses Kafka topics for inputs/outputs. \texttt{backend/services/decision\_engine/decision\_engine\_app/app.py}, lines 36--43.
+
+\textbf{Evidence.} \texttt{backend/services/decision\_engine/decision\_engine\_app/app.py}, lines 1--10 and 36--43.
+
+% ============================================================================
+% SECTION 7: CONTROL PLANE AND API GATEWAYS
+% ============================================================================
+\section{Control Plane and API Gateways}
+
+% ---------------------------------------------------------------------------
+\subsection{MCP Server (Port 8012)}
+
+\textbf{Purpose.} Unified API gateway that aggregates all microservices. \texttt{backend/services/mcp\_server/mcp\_server\_app/app.py}, lines 1--5.
+
+\textbf{How it works.} Maintains a service registry with port mappings, routes \texttt{/api/*} to the correct backend, and proxies OpenAPI specs. \texttt{backend/services/mcp\_server/mcp\_server\_app/app.py}, lines 71--165 and 313--341.
+
+\textbf{Evidence.} \texttt{backend/services/mcp\_server/mcp\_server\_app/app.py}, lines 1--5, 71--165, 313--341.
+
+% ---------------------------------------------------------------------------
+\subsection{Config Service (Port 8016)}
+
+\textbf{Purpose.} JSON-based control-config orchestration across emulation, controllers, MANO, and MCP calls. \texttt{backend/services/config\_service/config\_service\_app/app.py}, lines 1--10.
+
+\textbf{Interfaces.}
+\begin{itemize}[leftmargin=*]
+\item \texttt{GET /api/template}: sample control-config template. \texttt{backend/services/config\_service/config\_service\_app/app.py}, lines 439--441.
+\item \texttt{POST /api/validate}: validate config and return plan. \texttt{backend/services/config\_service/config\_service\_app/app.py}, lines 444--469.
+\item \texttt{POST /api/apply}: execute config actions. \texttt{backend/services/config\_service/config\_service\_app/app.py}, lines 472--491.
+\end{itemize}
+
+\textbf{Dependencies.} MCP Server URL used for routing actions. \texttt{backend/services/config\_service/config\_service\_app/app.py}, lines 27--31.
+
+\textbf{Evidence.} \texttt{backend/services/config\_service/config\_service\_app/app.py}, lines 1--10, 27--31, 439--491.
+
+% ============================================================================
+% SECTION 8: AI/LLM CONTROL AND MCP TOOLING
+% ============================================================================
+\section{AI/LLM Control and MCP Tooling}
+
+% ---------------------------------------------------------------------------
+\subsection{AI Gateway Service (Port 8014)}
+
+\textbf{Purpose.} LLM provider gateway with MCP request generation and execution. \texttt{backend/services/ai\_gateway/ai\_gateway\_app/app.py}, lines 35--39.
+
+\textbf{Interfaces.}
+\begin{itemize}[leftmargin=*]
+\item \texttt{POST /api/ai/chat}: direct LLM chat. \texttt{backend/services/ai\_gateway/ai\_gateway\_app/app.py}, lines 1320--1325.
+\item \texttt{POST /api/ai/mcp/generate}: convert NL prompt to MCP request (TOON). \texttt{backend/services/ai\_gateway/ai\_gateway\_app/app.py}, lines 1545--1565.
+\item \texttt{POST /api/ai/mcp/execute}: execute MCP requests with scope enforcement. \texttt{backend/services/ai\_gateway/ai\_gateway\_app/app.py}, lines 3138--3148.
+\end{itemize}
+
+\textbf{Safety model.} Built-in agents define allowed methods and path prefixes; scoped requests enforce topology boundaries. \texttt{backend/services/ai\_gateway/ai\_gateway\_app/app.py}, lines 454--596 and 2146--2259.
+
+\textbf{Evidence.} \texttt{backend/services/ai\_gateway/ai\_gateway\_app/app.py}, lines 35--39, 454--596, 1320--1325, 1545--1565, 2146--2259, 3138--3148.
+
+% ---------------------------------------------------------------------------
+\subsection{MCP Tool Hub Service (Port 8018)}
+
+\textbf{Purpose.} Registry and safe proxy for external MCP servers. \texttt{backend/services/mcp\_tool\_hub/mcp\_tool\_hub\_app/app.py}, lines 1--5.
+
+\textbf{How it works.} MCP server configs include read-only flag, allowed methods, and allowed/blocked path prefixes. \texttt{backend/services/mcp\_tool\_hub/mcp\_tool\_hub\_app/app.py}, lines 51--62.
+
+\textbf{Evidence.} \texttt{backend/services/mcp\_tool\_hub/mcp\_tool\_hub\_app/app.py}, lines 1--5 and 51--62.
+
+% ---------------------------------------------------------------------------
+\subsection{MCP Proxy (Generic Service)}
+
+\textbf{Purpose.} Generic HTTP proxy used as a local MCP server shim, with read-only controls. \texttt{backend/services/mcp\_proxy/mcp\_proxy\_app/app.py}, lines 1--5.
+
+\textbf{How it works.} Enforces read-only mode or allowed methods, and allowed/blocked path prefixes before proxying. \texttt{backend/services/mcp\_proxy/mcp\_proxy\_app/app.py}, lines 27--95.
+
+\textbf{Evidence.} \texttt{backend/services/mcp\_proxy/mcp\_proxy\_app/app.py}, lines 1--5 and 27--95.
+
+% ============================================================================
+% SECTION 9: MANO / NFV INTEGRATION
+% ============================================================================
+\section{MANO / NFV Integration}
+
+% ---------------------------------------------------------------------------
+\subsection{MANO Service (Port 8015 + gRPC 50052)}
+
+\textbf{Purpose.} Minimal OSM-like MANO core with catalog and NS lifecycle, plus southbound adapters. \texttt{backend/services/mano\_service/mano\_service\_app/app.py}, lines 1--11.
+
+\textbf{Interfaces.} HTTP API via MCP gateway and gRPC port 50052. \texttt{backend/services/mano\_service/mano\_service\_app/app.py}, lines 2--5 and 44--46.
+
+\textbf{Dependencies.} MCP server and Orchestrator URLs for southbound calls. \texttt{backend/services/mano\_service/mano\_service\_app/app.py}, lines 48--52.
+
+\textbf{Evidence.} \texttt{backend/services/mano\_service/mano\_service\_app/app.py}, lines 1--11, 44--52.
+
+% ---------------------------------------------------------------------------
+\subsection{OSM Connector Service (Port 8020)}
+
+\textbf{Purpose.} Isolated adapter/proxy for ETSI OSM NBI (SOL005). \texttt{backend/services/osm\_connector/osm\_connector\_app/app.py}, lines 1--9.
+
+\textbf{How it works.} Maintains token cache state and retrieves tokens from OSM NBI. \texttt{backend/services/osm\_connector/osm\_connector\_app/app.py}, lines 38--66 and 96--135.
+
+\textbf{Evidence.} \texttt{backend/services/osm\_connector/osm\_connector\_app/app.py}, lines 1--9 and 38--66.
+
+% ---------------------------------------------------------------------------
+\subsection{VIM Emulator Service (Port 6001)}
+
+\textbf{Purpose.} Minimal OpenStack-like API (Keystone/Nova/Neutron subset) so ETSI OSM can treat an emulation as a VIM. \texttt{backend/services/vimemu\_service/vimemu\_service\_app/app.py}, lines 1--11.
+
+\textbf{How it works.} Topology-scoped via \texttt{TOPOLOGY\_ID} environment variable. \texttt{backend/services/vimemu\_service/vimemu\_service\_app/app.py}, lines 38--42.
+
+\textbf{Evidence.} \texttt{backend/services/vimemu\_service/vimemu\_service\_app/app.py}, lines 1--11 and 38--42.
+
+% ============================================================================
+% SECTION 10: SUPPORTING SHARED INFRASTRUCTURE (NON-MICROSERVICE STACK)
+% ============================================================================
+\section{Supporting Shared Infrastructure}
+
+Bu bileenler mikroservis degildir fakat platformun calismasi icin kritik altyapi saglar.
+
+\begin{itemize}[leftmargin=*]
+\item \textbf{PostgreSQL, MongoDB, Redis}: temel veri ve state depolari. \texttt{docker-compose.yml}, lines 1--121.
+\item \textbf{InfluxDB, Prometheus, Grafana}: telemetry storage ve dashboard. \texttt{docker-compose.yml}, lines 122--227.
+\item \textbf{RabbitMQ, Consul}: mesajlasma ve servis discovery. \texttt{docker-compose.yml}, lines 147--183.
+\item \textbf{Kafka + Zookeeper}: streaming bus. \texttt{docker-compose.yml}, lines 669--720.
+\item \textbf{Flink}: streaming analytics jobs. \texttt{docker-compose.yml}, lines 894--952.
+\item \textbf{HDFS, Spark}: batch analytics. \texttt{docker-compose.yml}, lines 954--1024.
+\item \textbf{Hive, Hue}: SQL on Hadoop ve UI. \texttt{docker-compose.yml}, lines 1026--1145.
+\item \textbf{JupyterLab}: data lab UI. \texttt{docker-compose.yml}, lines 1764--1798.
+\end{itemize}
+
+\textbf{Evidence.} \texttt{docker-compose.yml}, lines 1--227, 669--720, 894--1145, 1764--1798.
+
+\end{document}

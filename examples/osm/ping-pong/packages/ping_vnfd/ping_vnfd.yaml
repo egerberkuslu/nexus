@@ -1,0 +1,63 @@
+vnfd:
+  id: caduceus-ping-vnf
+  product-name: caduceus-ping-vnf
+  provider: caduceus
+  version: "1.0"
+  description: "Ping VNF (dockerized via vimemu)"
+
+  # OSM uses this CP as the management interface CP.
+  mgmt-cp: ping-cp0
+
+  # External connection points (referenced by NSD virtual-link-connectivity).
+  ext-cpd:
+    - id: ping-cp0
+      int-cpd:
+        cpd: ping-int-cp0
+        vdu-id: ping-vdu
+
+  # Deployment flavors.
+  df:
+    - id: default-df
+      vdu-profile:
+        - id: ping-vdu
+          min-number-of-instances: 1
+      instantiation-level:
+        - id: default-instantiation-level
+          vdu-level:
+            - vdu-id: ping-vdu
+              number-of-instances: 1
+
+  # Software images (Glance).
+  sw-image-desc:
+    - id: netshoot-image
+      name: netshoot
+      # You can also set this to e.g. docker://alpine:3.19 (vimemu will resolve it).
+      image: netshoot
+
+  # VDU(s)
+  vdu:
+    - id: ping-vdu
+      name: ping-vdu
+      description: "Ping VDU"
+      sw-image-desc: netshoot-image
+      virtual-compute-desc: ping-vdu-compute
+      virtual-storage-desc:
+        - ping-vdu-storage
+      int-cpd:
+        - id: ping-int-cp0
+          virtual-network-interface-requirement:
+            - name: eth0
+              virtual-interface:
+                type: VIRTIO
+
+  virtual-compute-desc:
+    - id: ping-vdu-compute
+      virtual-cpu:
+        num-virtual-cpu: 1
+      virtual-memory:
+        # `size` is expressed in GiB (ETSI). 0.25 GiB ≈ 256 MiB.
+        size: 0.25
+
+  virtual-storage-desc:
+    - id: ping-vdu-storage
+      size-of-storage: 1

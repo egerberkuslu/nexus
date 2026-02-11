@@ -1,0 +1,131 @@
+# Build Mininet-WiFi + Containernet using official methods
+# Base: Ubuntu 22.04 with Python 3.10
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Python 3 and base dependencies
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-dev \
+    sudo \
+    git \
+    make \
+    help2man \
+    pyflakes3 \
+    python3-pycodestyle \
+    tcpdump \
+    wpan-tools \
+    iputils-ping \
+    docker.io \
+    lsb-release \
+    wget \
+    curl \
+    net-tools \
+    iproute2 \
+    ansible \
+    aptitude
+
+# Upgrade pip to latest version (needed for --break-system-packages flag)
+RUN pip3 install --upgrade pip
+
+# Install Python dependencies
+RUN pip3 install six numpy beautifulsoup4 docker
+
+# Create work directory and clone Mininet-WiFi
+WORKDIR /app/mininet-wifi
+RUN git clone https://github.com/intrig-unicamp/mininet-wifi.git .
+
+# Fix install script outdated dependencies
+# Replace specific package names, not all occurrences
+# Inject matplotlib cleanup command into the install script
+RUN sed -i 's/\bpyflakes\b/pyflakes3/g' util/install.sh && \
+    sed -i 's/\bpep8\b/pycodestyle/g' util/install.sh && \
+    sed -i 's/python3-matplotlib//g' util/install.sh && \
+    sed -i '/Installing Mininet-wifi core/a rm -rf /usr/lib/python3/dist-packages/matplotlib* /usr/lib/python3/dist-packages/mpl_toolkits || true' util/install.sh
+
+# Install matplotlib from pip BEFORE running install script
+RUN pip3 install 'matplotlib>=3.5.0'
+
+# Keep apt lists for the install script, then run it
+# -W: wireless dependencies, -l: wmediumd, -n: mininet-wifi, -f: OpenFlow, -v: OpenvSwitch
+# The script will clean up system matplotlib before installing mininet-wifi
+RUN util/install.sh -Wlnfv
+
+# Clone Containernet with WiFi support (ramonfontes fork)
+WORKDIR /root
+RUN git clone https://github.com/ramonfontes/containernet.git
+
+# Install Containernet Python package directly (no ansible needed)
+WORKDIR /root/containernet
+RUN python3 setup.py install || \
+    (pip3 install -e . || echo "Containernet will be used via PYTHONPATH")
+
+# Set PYTHONPATH to include Containernet
+ENV PYTHONPATH="/root/containernet:${PYTHONPATH}"
+
+# Clean up apt lists after installation
+RUN rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies for gRPC agent
+RUN pip3 install --no-cache-dir \
+    grpcio>=1.48.0 \
+    grpcio-tools>=1.48.0 \
+    protobuf>=4.21.0 \
+    pyyaml>=6.0 \
+    psutil>=5.9.0 \
+    netifaces>=0.11.0
+
+# Copy gRPC agent code
+COPY emulation-container/grpc_agent /opt/grpc_agent
+COPY emulation-container/protocols /opt/protocols
+COPY emulation-container/scripts /opt/scripts
+COPY backend/proto /opt/proto
+
+# Compile gRPC stubs
+WORKDIR /opt/grpc_agent
+RUN python3 -m grpc_tools.protoc \
+    -I/opt/proto \
+    --python_out=. \
+    --grpc_python_out=. \
+    /opt/proto/emulation.proto
+
+# Create directories for state management
+RUN mkdir -p /var/lib/caduceus-flux/{snapshots,configs,logs}
+
+# ============================================================================
+# Environment Variables
+# ============================================================================
+
+ENV PYTHONPATH="/root/containernet:/app/mininet-wifi:/app/mininet-wifi/mininet:/app/mininet-wifi/mn_wifi:/opt/grpc_agent:${PYTHONPATH}"
+ENV PYTHONUNBUFFERED=1
+ENV EMULATION_SERVER_HOST=0.0.0.0
+ENV EMULATION_SERVER_PORT=50051
+ENV LOG_LEVEL=INFO
+ENV TOPOLOGY_ID=""
+ENV TOPOLOGY_NAME=""
+ENV EMULATION_ID=""
+
+# ============================================================================
+# Expose Ports
+# ============================================================================
+
+EXPOSE 50051 6633 6653
+
+
+# Expose gRPC port
+EXPOSE 50051
+
+# Expose OpenFlow ports
+EXPOSE 6633 6653
+
+# Start script
+COPY emulation-container/scripts/entrypoint.sh /opt/entrypoint.sh
+RUN chmod +x /opt/entrypoint.sh
+
+WORKDIR /opt/grpc_agent
+
+ENTRYPOINT ["/opt/entrypoint.sh"]
+CMD ["python3", "server.py"]

@@ -1,0 +1,46 @@
+# Grafana Data Sources Configuration
+
+apiVersion: 1
+
+datasources:
+  # Prometheus
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: "15s"
+      httpMethod: POST
+
+  # InfluxDB v2 (Flux) for time-series metrics
+  - name: InfluxDB
+    uid: influxdb-metrics
+    type: influxdb
+    access: proxy
+    editable: true
+    url: ${INFLUXDB_URL}
+    jsonData:
+      version: Flux
+      organization: ${INFLUXDB_ORG}
+      defaultBucket: ${INFLUXDB_BUCKET}
+      httpMode: POST
+    secureJsonData:
+      token: ${INFLUXDB_TOKEN}
+
+  # PostgreSQL (for topology data)
+  - name: PostgreSQL
+    uid: postgres
+    type: postgres
+    url: postgres:5432
+    database: ${POSTGRES_DB}
+    user: ${POSTGRES_USER}
+    secureJsonData:
+      password: ${POSTGRES_PASSWORD}
+    jsonData:
+      sslmode: disable
+      maxOpenConns: 10
+      maxIdleConns: 2
+      connMaxLifetime: 14400

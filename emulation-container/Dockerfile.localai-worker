@@ -1,0 +1,81 @@
+# LocalAI Worker Node Dockerfile
+# This creates a worker node for model sharding
+
+FROM localai/localai:latest-aio-cpu
+
+# Set environment variables for worker node
+ENV WORKER_MODE=true \
+    P2P=true \
+    DEBUG=true \
+    LOG_LEVEL=info \
+    MODELS_PATH=/models/cache \
+    DISABLE_AUTODOWNLOAD=true \
+    AUTO_LOAD_MODELS=false \
+    AUTOLOAD_GALLERIES=false \
+    AUTOLOAD_BACKEND_GALLERIES=false \
+    PRELOAD_MODELS='[]' \
+    GALLERIES='[]' \
+    BUILD_BACKENDS=false
+
+# Worker token will be passed at runtime
+# ENV TOKEN will be set via docker run -e TOKEN
+
+# Create entrypoint script
+RUN cat > /entrypoint-worker.sh << 'EOF'
+#!/bin/bash
+
+echo "🤖 LocalAI Worker Node Starting"
+echo "=============================="
+echo "Worker ID: ${WORKER_ID:-$(hostname)}"
+
+# Accept either P2P or LOCALAI_P2P (prefer explicit P2P).
+P2P_VALUE="${P2P:-${LOCALAI_P2P:-}}"
+if [ -n "$P2P_VALUE" ]; then
+    export P2P="$P2P_VALUE"
+    if [ -z "${LOCALAI_P2P:-}" ]; then
+        export LOCALAI_P2P="$P2P_VALUE"
+    fi
+fi
+
+# Accept either TOKEN or LOCALAI_P2P_TOKEN, prefer explicit TOKEN
+TOKEN_VALUE="${TOKEN:-${LOCALAI_P2P_TOKEN:-}}"
+if [ -n "$TOKEN_VALUE" ]; then
+    export TOKEN="$TOKEN_VALUE"
+    echo "P2P Token: provided"
+else
+    echo "P2P Token: not-set"
+fi
+
+if [ -z "$TOKEN" ] && [ "${ALLOW_ANON_WORKER:-false}" != "true" ]; then
+    echo "❌ ERROR: TOKEN environment variable is required!"
+    echo "   Get token from host node logs"
+    exit 1
+fi
+
+echo "✅ Starting worker with P2P model sharding..."
+
+# MODELS_PATH should not point to the shared volume root (which can contain many YAML configs).
+MODELS_PATH_VALUE="${MODELS_PATH:-/models/cache}"
+mkdir -p "$MODELS_PATH_VALUE" 2>/dev/null || true
+if [ -d "/models" ] && [ "$MODELS_PATH_VALUE" != "/models" ]; then
+    find /models -maxdepth 1 -type f ! -name '*.yaml' -exec ln -sf {} "$MODELS_PATH_VALUE"/ \; 2>/dev/null || true
+fi
+export MODELS_PATH="$MODELS_PATH_VALUE"
+
+exec /aio/entrypoint.sh worker p2p-llama-cpp-rpc
+EOF
+
+RUN chmod +x /entrypoint-worker.sh
+
+# Compatibility shims for legacy commands (/build/entrypoint.sh, local-ai)
+RUN mkdir -p /build && \
+    printf '#!/bin/bash\nexec /aio/entrypoint.sh "$@"\n' > /build/entrypoint.sh && \
+    chmod +x /build/entrypoint.sh && \
+    ln -sf /local-ai /usr/local/bin/local-ai
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD test -n "$TOKEN" || exit 1
+
+# Use custom entrypoint
+ENTRYPOINT ["/entrypoint-worker.sh"]

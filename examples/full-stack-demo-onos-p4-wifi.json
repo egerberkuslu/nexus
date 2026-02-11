@@ -1,0 +1,134 @@
+{
+  "name": "Full Stack Demo (Host + OVS + Router + WiFi + P4 + ONOS)",
+  "description": "Example topology with host, OVS switch, router, access point + stations, P4 BMv2 switch, and ONOS controller.",
+  "version": "1.0",
+  "metadata": {
+    "author": "Caduceus-Flux",
+    "tags": ["demo", "ovs", "router", "wifi", "p4", "onos"],
+    "p4_program_id": "basic_forwarding-7919f071f1",
+    "notes": [
+      "This topology expects the P4 program id above to exist in the shared P4 programs volume (p4-manager-service compiles/stores it under /var/lib/caduceus/p4).",
+      "If you import this into a fresh environment, compile the p4-manager example 'basic_forwarding' first and then update p4_program_id."
+    ]
+  },
+  "nodes": [
+    {
+      "name": "s1",
+      "device_type": "switch",
+      "x": 430,
+      "y": 210,
+      "properties": {
+        "switch_type": "ovs",
+        "openflow_version": "1.3",
+        "datapath_id": "00000000000000a1"
+      }
+    },
+    {
+      "name": "h1",
+      "device_type": "host",
+      "x": 120,
+      "y": 120,
+      "properties": {
+        "ip": "10.0.0.10/24",
+        "default_route": "via 10.0.0.1"
+      }
+    },
+    {
+      "name": "r1",
+      "device_type": "router",
+      "x": 120,
+      "y": 270,
+      "properties": {
+        "router_daemon": "frr",
+        "protocols": ["ospf"],
+        "router_id": "1.1.1.1",
+        "interfaces": [{ "name": "r1-eth0", "ip": "10.0.0.1/24" }]
+      }
+    },
+    {
+      "name": "ap1",
+      "device_type": "ap",
+      "x": 720,
+      "y": 150,
+      "properties": {
+        "ssid": "caduceus-wifi",
+        "mode": "ac",
+        "channel": "36",
+        "security": "wpa2",
+        "password": "caduceus123",
+        "range": 120,
+        "txpower": 14
+      }
+    },
+    {
+      "name": "sta1",
+      "device_type": "station",
+      "x": 840,
+      "y": 90,
+      "properties": {
+        "ip": "10.0.0.20/24",
+        "ssid": "caduceus-wifi",
+        "mode": "ac",
+        "security": "wpa2",
+        "password": "caduceus123"
+      }
+    },
+    {
+      "name": "sta2",
+      "device_type": "station",
+      "x": 840,
+      "y": 230,
+      "properties": {
+        "ip": "10.0.0.21/24",
+        "ssid": "caduceus-wifi",
+        "mode": "ac",
+        "security": "wpa2",
+        "password": "caduceus123"
+      }
+    },
+    {
+      "name": "p4s1",
+      "device_type": "p4switch",
+      "x": 430,
+      "y": 380,
+      "properties": {
+        "p4_program_id": "basic_forwarding-7919f071f1",
+        "grpc_port": 9559,
+        "thrift_port": 9090,
+        "device_id": 1
+      }
+    }
+  ],
+  "links": [
+    { "source_node_id": "h1", "target_node_id": "s1", "bandwidth": 1000, "delay": 1, "loss": 0, "properties": {} },
+    { "source_node_id": "r1", "target_node_id": "s1", "bandwidth": 1000, "delay": 1, "loss": 0, "properties": {} },
+    { "source_node_id": "ap1", "target_node_id": "s1", "bandwidth": 1000, "delay": 1, "loss": 0, "properties": {} },
+    { "source_node_id": "p4s1", "target_node_id": "s1", "bandwidth": 1000, "delay": 1, "loss": 0, "properties": {} }
+  ],
+  "controllers": [
+    {
+      "name": "onos1",
+      "controller_type": "onos",
+      "ip": "127.0.0.1",
+      "port": 6653,
+      "properties": {
+        "ui_port": 8181,
+        "ui_path": "/onos/ui"
+      }
+    }
+  ],
+  "protocols": {
+    "wireless": {
+      "protocol": "802.11ac",
+      "frequency": "5GHz",
+      "encryption": "WPA2-PSK"
+    }
+  },
+  "options": {
+    "autoSetMacs": true,
+    "xterms": false,
+    "ipBase": "10.0.0.0/24",
+    "enableWmediumd": true,
+    "propagationModel": "logDistance"
+  }
+}

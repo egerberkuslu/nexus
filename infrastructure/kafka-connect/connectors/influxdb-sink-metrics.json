@@ -1,0 +1,30 @@
+{
+  "name": "influxdb-sink-metrics",
+  "config": {
+    "connector.class": "com.github.jcustenborder.kafka.connect.influxdb.InfluxDBSinkConnector",
+    "tasks.max": "2",
+    "topics": "metrics.raw",
+    "influxdb.url": "${INFLUXDB_URL}",
+    "influxdb.token": "${INFLUXDB_TOKEN}",
+    "influxdb.org": "${INFLUXDB_ORG}",
+    "influxdb.bucket": "${INFLUXDB_BUCKET}",
+    "influxdb.measurement": "network_metrics",
+    "influxdb.tags": "device,source,topology_id,emulation_id",
+    "influxdb.timestamp.field": "timestamp",
+    "influxdb.fields": "bytes_sent,bytes_received,packets_sent,packets_received,errors_in,errors_out,drops_in,drops_out,cpu_percent,memory_percent",
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    "transforms": "ExtractMetrics",
+    "transforms.ExtractMetrics.type": "org.apache.kafka.connect.transforms.ExtractField$Value",
+    "transforms.ExtractMetrics.field": "metrics",
+    "errors.tolerance": "all",
+    "errors.log.enable": "true",
+    "errors.log.include.messages": "true",
+    "errors.deadletterqueue.topic.name": "metrics.dlq",
+    "errors.deadletterqueue.topic.replication.factor": "1",
+    "errors.deadletterqueue.topic.partitions": "1",
+    "batch.size": "500",
+    "linger.ms": "1000"
+  }
+}

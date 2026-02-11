@@ -1,0 +1,85 @@
+# Prometheus Alerting Rules for Network Metrics
+
+groups:
+  - name: network_alerts
+    interval: 30s
+    rules:
+      # High packet loss
+      - alert: HighPacketLoss
+        expr: |
+          (rate(interface_rx_errors_total[5m]) / rate(interface_rx_packets_total[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          component: network
+        annotations:
+          summary: "High packet loss on {{ $labels.device }} interface {{ $labels.interface }}"
+          description: "Packet loss is {{ $value | humanizePercentage }} on device {{ $labels.device }}"
+
+      # Interface down
+      - alert: InterfaceDown
+        expr: interface_status{status="down"} == 1
+        for: 1m
+        labels:
+          severity: critical
+          component: network
+        annotations:
+          summary: "Interface down on {{ $labels.device }}"
+          description: "Interface {{ $labels.interface }} on device {{ $labels.device }} is down"
+
+      # High bandwidth utilization
+      - alert: HighBandwidthUtilization
+        expr: |
+          (rate(interface_tx_bytes_total[5m]) * 8) / interface_bandwidth_bps > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          component: network
+        annotations:
+          summary: "High bandwidth utilization on {{ $labels.device }}"
+          description: "Bandwidth utilization is {{ $value | humanizePercentage }} on {{ $labels.device }} interface {{ $labels.interface }}"
+
+      # Device CPU high
+      - alert: DeviceHighCPU
+        expr: device_cpu_percent > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: device
+        annotations:
+          summary: "High CPU usage on device {{ $labels.device }}"
+          description: "CPU usage is {{ $value }}% on device {{ $labels.device }}"
+
+      # Device memory high
+      - alert: DeviceHighMemory
+        expr: (device_memory_used_mb / device_memory_total_mb) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          component: device
+        annotations:
+          summary: "High memory usage on device {{ $labels.device }}"
+          description: "Memory usage is {{ $value | humanizePercentage }} on device {{ $labels.device }}"
+
+      # Protocol neighbor down
+      - alert: ProtocolNeighborDown
+        expr: protocol_neighbor_count{protocol=~"OSPF|BGP|ISIS"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: protocol
+        annotations:
+          summary: "No {{ $labels.protocol }} neighbors on {{ $labels.device }}"
+          description: "Device {{ $labels.device }} has no active {{ $labels.protocol }} neighbors"
+
+      # Routing table empty
+      - alert: EmptyRoutingTable
+        expr: protocol_route_count == 0
+        for: 2m
+        labels:
+          severity: warning
+          component: protocol
+        annotations:
+          summary: "Empty routing table on {{ $labels.device }}"
+          description: "Device {{ $labels.device }} has no routes in {{ $labels.protocol }} routing table"
+

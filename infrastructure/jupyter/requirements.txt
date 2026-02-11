@@ -1,0 +1,7 @@
+apache-flink==1.18.1
+influxdb-client==1.49.0
+jupyter-server==2.17.0
+jupyterlab==4.5.1
+kafka-python==2.3.0
+notebook==7.5.1
+pyspark==3.5.1

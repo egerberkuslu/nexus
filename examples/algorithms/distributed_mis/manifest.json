@@ -1,0 +1,9 @@
+{
+  "name": "distributed-mis",
+  "version": "1.0.0",
+  "node_class": "algorithm:DistributedMISNode",
+  "transport": "udp",
+  "listen_port": 50000,
+  "ip_family": "auto"
+}
+

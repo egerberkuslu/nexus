@@ -1,0 +1,35 @@
+{
+  "name": "wsn-leach",
+  "version": "1.0.0",
+  "description": "LEACH - Low-Energy Adaptive Clustering Hierarchy for Wireless Sensor Networks",
+  "node_class": "algorithm:LEACHNode",
+  "transport": "udp",
+  "listen_port": 50000,
+  "ip_family": "auto",
+  "wsn_config": {
+    "protocol": "leach",
+    "p": 0.05,
+    "max_rounds": 2000,
+    "packet_size": 4000,
+    "initial_energy": 0.5,
+    "field_size": [100, 100],
+    "bs_position": [50, 175],
+    "e_elec": 50e-9,
+    "e_amp": 100e-12,
+    "e_da": 5e-9
+  },
+  "default_params": {
+    "p": 0.05,
+    "max_rounds": 2000,
+    "packet_size": 4000,
+    "initial_energy": 0.5,
+    "discovery_seconds": 2.0,
+    "hello_interval": 0.5,
+    "adv_broadcast_count": 3,
+    "adv_listen_time": 1.5,
+    "join_listen_time": 1.0,
+    "schedule_wait_time": 1.0,
+    "frame_time": 2.0,
+    "round_time": 5.0
+  }
+}

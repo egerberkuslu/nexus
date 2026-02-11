@@ -1,0 +1,98 @@
+{
+  "name": "onos-topology-2-full-connectivity",
+  "description": "Assign per-link IPv4 subnets + enable routing so host-2/docker-host/host-5/host-6 are mutually reachable via router-4.",
+  "config": {
+    "schema": "caduceus.network-config.v1",
+    "topology_id": "59ccc74e-799a-49b0-b310-055d28c08389",
+    "defaults": {
+      "flush_routes": false,
+      "dns_servers": [],
+      "sysctls": {},
+      "commands": []
+    },
+    "devices": [
+      {
+        "name": "router-4",
+        "kind": "router",
+        "sysctls": {
+          "net.ipv4.ip_forward": "1"
+        },
+        "interfaces": [
+          {
+            "name": "router-4-eth2",
+            "addresses": [
+              "10.0.0.1/24"
+            ]
+          },
+          {
+            "name": "router-4-eth0",
+            "addresses": [
+              "10.0.5.1/30"
+            ]
+          },
+          {
+            "name": "router-4-eth1",
+            "addresses": [
+              "10.0.6.1/30"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "host-2",
+        "kind": "host",
+        "interfaces": [
+          {
+            "name": "host-2-eth0",
+            "addresses": [
+              "10.0.0.2/24"
+            ]
+          }
+        ],
+        "default_gateway": "10.0.0.1"
+      },
+      {
+        "name": "docker-host",
+        "kind": "host",
+        "interfaces": [
+          {
+            "name": "docker-host-eth0",
+            "addresses": [
+              "10.0.0.3/24"
+            ]
+          }
+        ],
+        "default_gateway": "10.0.0.1"
+      },
+      {
+        "name": "host-5",
+        "kind": "host",
+        "interfaces": [
+          {
+            "name": "host-5-eth0",
+            "addresses": [
+              "10.0.5.2/30"
+            ]
+          }
+        ],
+        "default_gateway": "10.0.5.1"
+      },
+      {
+        "name": "host-6",
+        "kind": "host",
+        "interfaces": [
+          {
+            "name": "host-6-eth0",
+            "addresses": [
+              "10.0.6.2/30"
+            ]
+          }
+        ],
+        "default_gateway": "10.0.6.1"
+      }
+    ],
+    "metadata": {
+      "note": "router-4 interface mapping: eth2 is the switch-3/LAN side; eth0 connects to host-5; eth1 connects to host-6."
+    }
+  }
+}

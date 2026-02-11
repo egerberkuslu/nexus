@@ -1,0 +1,123 @@
+{
+  "name": "Wireless Mesh Network",
+  "description": "Mesh network with 1 AP and 3 wireless stations demonstrating 802.11ac",
+  "version": "1.0",
+  "metadata": {
+    "author": "Caduceus-Flux",
+    "created": "2024-01-01",
+    "tags": ["wireless", "mesh", "802.11ac"]
+  },
+  "nodes": [
+    {
+      "name": "ap1",
+      "device_type": "ap",
+      "x": 200,
+      "y": 200,
+      "properties": {
+        "ssid": "mesh-network",
+        "mode": "ac",
+        "channel": "36",
+        "security": "wpa2",
+        "password": "meshpass123",
+        "range": 100,
+        "txpower": 20
+      }
+    },
+    {
+      "name": "sta1",
+      "device_type": "sta",
+      "x": 100,
+      "y": 150,
+      "properties": {
+        "ip": "192.168.0.11/24",
+        "ssid": "mesh-network",
+        "mode": "ac",
+        "security": "wpa2",
+        "password": "meshpass123",
+        "mobility": {
+          "model": "RandomWalk",
+          "speed": 5,
+          "bounds": {"min_x": 0, "max_x": 400, "min_y": 0, "max_y": 400}
+        }
+      }
+    },
+    {
+      "name": "sta2",
+      "device_type": "sta",
+      "x": 300,
+      "y": 150,
+      "properties": {
+        "ip": "192.168.0.12/24",
+        "ssid": "mesh-network",
+        "mode": "ac",
+        "security": "wpa2",
+        "password": "meshpass123",
+        "mobility": {
+          "model": "RandomDirection",
+          "speed": 3,
+          "bounds": {"min_x": 0, "max_x": 400, "min_y": 0, "max_y": 400}
+        }
+      }
+    },
+    {
+      "name": "sta3",
+      "device_type": "sta",
+      "x": 200,
+      "y": 100,
+      "properties": {
+        "ip": "192.168.0.13/24",
+        "ssid": "mesh-network",
+        "mode": "ac",
+        "security": "wpa2",
+        "password": "meshpass123"
+      }
+    },
+    {
+      "name": "s1",
+      "device_type": "switch",
+      "x": 200,
+      "y": 300,
+      "properties": {
+        "switch_type": "ovs"
+      }
+    },
+    {
+      "name": "h1",
+      "device_type": "host",
+      "x": 200,
+      "y": 400,
+      "properties": {
+        "ip": "192.168.0.100/24"
+      }
+    }
+  ],
+  "links": [
+    {
+      "source_node_id": "ap1",
+      "target_node_id": "s1",
+      "bandwidth": 1000,
+      "delay": 0.5,
+      "properties": {}
+    },
+    {
+      "source_node_id": "s1",
+      "target_node_id": "h1",
+      "bandwidth": 1000,
+      "delay": 0.5,
+      "properties": {}
+    }
+  ],
+  "controllers": [],
+  "protocols": {
+    "wireless": {
+      "protocol": "802.11ac",
+      "frequency": "5GHz",
+      "encryption": "WPA2-PSK"
+    }
+  },
+  "options": {
+    "enableWmediumd": true,
+    "propagationModel": "logDistance",
+    "ipBase": "192.168.0.0/24"
+  }
+}

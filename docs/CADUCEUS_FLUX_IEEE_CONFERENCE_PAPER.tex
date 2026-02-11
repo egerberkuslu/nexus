@@ -1,0 +1,367 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{url}
+
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\setlist[itemize]{leftmargin=*}
+\setlist[enumerate]{leftmargin=*}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+    citecolor=blue,
+    pdfborder={0 0 0}
+}
+
+\begin{document}
+
+\title{Caduceus-Flux: Mikroservis Tabanli Ag Emulasyon Platformu (Tumlesik Mimari Anlatim)}
+
+\author{\IEEEauthorblockN{Yazarlar}
+\IEEEauthorblockA{\textit{Bolum} \\
+\textit{Universite}\\
+Sehir, Ulke \\
+email@universite.edu}}
+
+\maketitle
+
+\begin{abstract}
+Bu dokuman, Caduceus-Flux adli mikroservis tabanli ag emulasyon platformunun nasil calistigini, hangi bilesenlerden olustugunu, bilesenlerin birbiriyle nasil iletisim kurdugunu ve platformun ortaya koydugu yenilikleri butunlesik bir mimari anlatim olarak sunar. Metin, bir kullanicinin ``manual-textbook'' okuyormus gibi sistemin genel amacini, temel akislari ve isletim mantigini adim adim kavramasina yardim etmeyi hedefler. Caduceus-Flux, Mininet/Containernet/Mininet-WiFi tabanli emulasyonlari mikroservislerle orkestre eder; topoloji yasam dongusu, es zamanli coklu topoloji calistirma, gozlemlenebilirlik, snapshot/restore, P4 programlanabilir veri duzlemi, yapay zeka destekli kontrol ve NFV MANO entegrasyonu gibi yetenekleri tek bir platform altinda birlestirir.
+\end{abstract}
+
+\begin{IEEEkeywords}
+ag emulasyonu, mikroservis mimarisi, topoloji izolasyonu, gozlemlenebilirlik, AI/LLM kontrolu, NFV MANO, P4
+\end{IEEEkeywords}
+
+\section{Giris ve Motivasyon}
+Ag emulasyon platformlari, SDN, routing protokolleri, kablosuz senaryolar ve NFV calismalari icin kritik bir arastirma araci saglar. Ancak klasik yaklasimlar (tek prosesli/monolitik mimariler) gercek hayatta karsilasilan gereksinimleri karsilamada zorlanir: runtime degisiklikler icin yeniden baslatma ihtiyaci, zayif coklu-topoloji izolasyonu, sinirli gozlemlenebilirlik ve otomasyon eksikligi. Caduceus-Flux bu ihtiyaclari mikroservis mimarisi, gecisken kontrol katmani ve esnek veri akislariyla adresler. Platform, es zamanli birden fazla topolojiyi guclu izolasyonla calistirirken, her topolojiye bagli alt-yapi kaynaklarini (izole veya paylasimli) kontrol eder ve kapsamli telemetri/analitik altyapisi sunar.
+
+\section{Platform Motivasyonu ve Genel Bakis}
+Bu raporlama doneminin en kritik ve ozgun ciktisi, LLM-MANO mimarisinin deneysel olarak dogrulanmasini hedefleyen Caduceus-Flux emulasyon ortaminin gelistirilmesidir. Donem calismalari, literatur temelli temel olusturma ve dogrudan deneysel uretime hizmet eden altyapi gelistirme eksenlerinde ilerlemistir.
+
+Caduceus-Flux; Mininet, Mininet-WiFi ve Containernet tabanli bir cekirdek uzerine kurulmus; IoT cihazlari, edge dugumleri, SDN veri duzlemi bilesenleri ve Docker tabanli VNF/mikroservisleri birlikte ele alan butunlesik bir mimari sunacak sekilde tasarlanmistir.
+
+Platformun temel yeniligi, yalnizca ``topoloji cizip calistirma'' yaklasimiyla sinirli kalmayip, coklu proje yonetimi, eszamanli coklu topoloji calistirma, mikroservis tabanli genisletilebilirlik, snapshot/restore ile sureklilik, topoloji basina izole gozlemlenebilirlik/analiz yigini ve LLM araciligiyla uctan uca kontrol gibi ileri seviye yetenekleri birlikte saglamasidir.
+
+\section{Literatur ile Karsilastirma}
+SDN/NFV emulasyon araclari alaninda 2010'dan bu yana cesitli cozumler gelistirilmistir. Bu calismalar belirli fonksiyon kumelerinde guclu performans sergilese de, kapsamli bir arastirma ve deney platformu icin gerekli tum yetenekleri bir arada sunma konusunda belirgin sinirliliklar bulunmaktadir.
+
+\subsection{Fonksiyon Tanimlari}
+Karsilastirma icin F1--F10 fonksiyon kodlari kullanilmaktadir.
+
+\begin{table}[htbp]
+\caption{Fonksiyon Kodu Aciklamalari}
+\label{tab:functions}
+\centering
+\small
+\begin{tabularx}{\linewidth}{l Y}
+\toprule
+\textbf{Kod} & \textbf{Aciklama} \\
+\midrule
+F1 & Entegre emulasyon (Mininet/Containernet tabanli butunlesik calisma) \\
+F2 & Gercek zamanli degisiklik (Calisan topolojide dinamik modifikasyon) \\
+F3 & Web arayuzu (Tarayici tabanli kullanici arayuzu) \\
+F4 & Webshell / CLI (Komut satiri erisimi) \\
+F5 & Mininet Python betigi disa aktarma \\
+F6 & Ozellestirilebilir coklu denetleyici destegi \\
+F7 & Grafiksel manipulasyon (Surukle-birak topoloji duzenleme) \\
+F8 & Veritabani kaliciligi (Topoloji ve konfigurasyon saklama) \\
+F9 & P4 anahtar destegi (Programlanabilir veri duzlemi) \\
+F10 & Otomatik topoloji olusturma \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Arac Karsilastirma Tablosu}
+\begin{table*}[t]
+\caption{Arac Karsilastirma Tablosu}
+\label{tab:tools}
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{l c c c c c c c c c c c}
+\toprule
+\textbf{Arac} & \textbf{Yil} & \textbf{F1} & \textbf{F2} & \textbf{F3} & \textbf{F4} & \textbf{F5} & \textbf{F6} & \textbf{F7} & \textbf{F8} & \textbf{F9} & \textbf{F10} \\
+\midrule
+MiniEdit & 2010 & $\checkmark$ & $\times$ & $\times$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\times$ & $\times$ & $\times$ \\
+VND & 2013 & $\times$ & $\times$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\times$ & $\checkmark$ & $\times$ & $\times$ & $\times$ \\
+OSHI & 2014 & $\checkmark$ & $\times$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\times$ & $\times$ & $\times$ \\
+NetIDE & 2016 & $\checkmark$ & $\times$ & $\times$ & $\times$ & $\checkmark$ & $\times$ & $\times$ & $\times$ & $\times$ & $\times$ \\
+Vycital & 2019 & $\times$ & $\times$ & $\checkmark$ & $\checkmark$ & $\times$ & $\times$ & $\checkmark$ & $\times$ & $\times$ & $\times$ \\
+MiTE & 2021 & $\checkmark$ & $\times$ & $\times$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\times$ & $\times$ & $\times$ & $\times$ \\
+Integrated & 2023 & $\checkmark$ & $\times$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\times$ & $\times$ & $\times$ \\
+Mininet-GUI & 2025 & $\checkmark$ & $\times$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\times$ & $\times$ & $\checkmark$ \\
+Caduceus-Flux & 2025 & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsection{Karsilastirma Analizi}
+Tablo \ref{tab:tools}'de goruldugu uzere literaturdeki mevcut araclar belirli fonksiyon kumelerinde guclu performans sergilese de, F1--F10 fonksiyonlarinin tamamini ayni cati altinda sunma konusunda belirgin sinirliliklara sahiptir:
+\begin{itemize}
+\item \textbf{MiniEdit (2010):} Ilk GUI tabanli Mininet editoru olarak onemli bir baslangic noktasi olusturmustur ancak web arayuzu ve veritabani kaliciligi sunmamaktadir.
+\item \textbf{VND (2013) ve OSHI (2014):} Web arayuzu destegi eklemislerdir ancak gercek zamanli degisiklik ve veritabani kaliciligi ozellikleri eksiktir.
+\item \textbf{NetIDE (2016) ve MiTE (2021):} Entegre emulasyon saglamakla birlikte, web arayuzu ve grafiksel manipulasyon yetenekleri sinirlidir.
+\item \textbf{Integrated (2023) ve Mininet-GUI (2025):} En kapsamli onceki calismalar olmakla birlikte, veritabani kaliciligi (F8) ve P4 anahtar destegi (F9) sunmamaktadir.
+\end{itemize}
+
+\textbf{Caduceus-Flux'in Farki:} Caduceus-Flux, Mininet/Mininet-WiFi/Containernet tabanli entegre cekirdegi uzerinde F1--F10 fonksiyonlarinin tamamini destekleyerek bu boslugu hedefler.
+
+\section{Platform Mimarisi}
+Caduceus-Flux, Mininet tabanli SDN emulasyonu (OpenFlow switch ve RYU/ONOS denetleyici ekosistemi), Containernet uzerinden Docker tabanli VNF/mikroservis calistirma ve Mininet-WiFi ile kablosuz senaryolari tek bir deney ortaminda birlestirir. Bu cekirdek uzerinde konumlanan Caduceus-Flux Entegrasyon Katmani; ortak API, topoloji yonetimi, telemetri toplama ve AI/MCP entegrasyonu gibi capraz-kesit servisleri saglayarak tum emulasyon yasam dongusunu butunlesik bir sekilde yonetir.
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\linewidth}{\small
+Mininet / Mininet-WiFi / Containernet cekirdegi \\
+SDN veri duzlemi (OpenFlow switch) + RYU/ONOS denetleyiciler \\
+Docker tabanli VNF/mikroservisler \\
+\textbf{Caduceus-Flux Entegrasyon Katmani:} ortak API, topoloji yonetimi, telemetri, AI/MCP
+}}
+\caption{Caduceus-Flux platform mimarisi (kavramsal).}
+\label{fig:platform_arch}
+\end{figure}
+
+\section{Genel Mimari: Katmanli Gorunum}
+Caduceus-Flux mimarisi pratikte alti katmanda incelenebilir:
+
+\textbf{K1 - Arayuz Katmani.} Kullanici arayuzu (web UI) ve API istemcileri MCP Server uzerinden sisteme erisir. Nginx birinci seviye reverse-proxy katmanidir.
+
+\textbf{K2 - API Gateway ve Yonlendirme.} MCP Server, tum mikroservisleri tek bir API altinda toplar. Servis kesfi ve path tabanli yonlendirme yapar, OpenAPI dokumantasyonlarini proxy eder.
+
+\textbf{K3 - Kontrol Duzlemi Mikroservisleri.} Topoloji yonetimi, emulasyon orkestrasyonu, protokol/cihaz yonetimi, snapshot/restore, P4, izleme, AI/LLM kontrol ve MANO katmanlari bu seviyededir.
+
+\textbf{K4 - Emulasyon Runtime.} Her topoloji icin ayrilan emulasyon container'i Mininet/Containernet/Mininet-WiFi runtime'ini calistirir ve gRPC uzerinden kontrol edilir.
+
+\textbf{K5 - Paylasimli Altyapi.} Veritabanlari (PostgreSQL/MongoDB/Redis), telemetry (InfluxDB/Prometheus), mesajlasma (RabbitMQ/Kafka), servis discovery (Consul), dashboard (Grafana), analitik (Flink/Spark/HDFS/Hive), veri bilimi (JupyterLab) gibi platform servisleri.
+
+\textbf{K6 - Topolojiye Ozel Izole Altyapi (Opsiyonel).} Izolasyon modu etkinse, her topoloji icin ayrilmis container ve volume setleri olusturularak metrik ve olay isolasyonu saglanir.
+
+\section{Mikroservis Katalogu (Ozet)}
+Tablo \ref{tab:svc} platformdaki ana servisleri, portlarini ve sorumluluklarini ozetler.
+
+\begin{table*}[t]
+\centering
+\caption{Caduceus-Flux Mikroservisleri}
+\label{tab:svc}
+\renewcommand{\arraystretch}{1.1}
+\begin{tabularx}{\textwidth}{p{3.2cm}p{2.0cm}p{4.2cm}Y}
+\toprule
+\textbf{Servis} & \textbf{Port} & \textbf{Container} & \textbf{Birincil Rol} \\
+\midrule
+Topology Service & 8001 & caduceus-topology-service & Topoloji CRUD, versiyonlama, import/export \\
+Orchestrator Service & 8002 & caduceus-orchestrator-service & Emulasyon yasam dongusu, altyapi orkestrasyonu \\
+Protocol Manager & 8003 & caduceus-protocol-manager-service & Protokol eklenti sistemi, runtime hot-swap \\
+Device Manager & 8004 & caduceus-device-manager-service & Runtime cihaz ekle/sil/guncelle \\
+Controller Manager & 8005 & caduceus-controller-manager-service & SDN controller lifecycle \\
+Snapshot Service & 8006 & caduceus-snapshot-service & Snapshot/restore + zamanlama \\
+Webshell Service & 8007 & caduceus-webshell-service & Websocket Mininet CLI + komut calistirma \\
+Export/Import Service & 8008 & caduceus-export-import-service & Cok formatli topoloji I/O \\
+Topology Generator & 8009 & caduceus-topology-generator-service & Otomatik topoloji uretimi \\
+P4 Manager & 8010 & caduceus-p4-manager-service & P4 compile + BMv2 yonetimi \\
+Monitoring Service & 8011 & caduceus-monitoring-service & Metrik toplama ve disa aktarim \\
+MCP Server & 8012 & caduceus-mcp-server & API gateway + servis yonlendirme \\
+Metrics Collector & 8013 & caduceus-metrics-collector-service & gRPC metrik akisi -> Kafka \\
+AI Gateway & 8014 & caduceus-ai-gateway-service & LLM gateway + MCP tooling \\
+MANO Service & 8015 (HTTP), 50052 (gRPC) & caduceus-mano-service & NFV MANO cekirdegi \\
+Config Service & 8016 & caduceus-config-service & Control-config orkestrasyonu \\
+Decision Engine & 8017 & caduceus-decision-engine-service & Streaming karar motoru \\
+MCP Tool Hub & 8018 & caduceus-mcp-tool-hub-service & MCP registry + guvenli proxy \\
+OSM Connector & 8020 & caduceus-osm-connector-service & ETSI OSM adaptor \\
+VIM Emulator & 6001 & caduceus-vimemu-service & OpenStack-benzeri VIM emulasyonu \\
+Emulation Container & 50051 (gRPC) & caduceus-emu-{topology} & Mininet/Containernet/Mininet-WiFi runtime \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\section{Topoloji Yasam Dongusu ve Orkestrasyon}
+Platformun merkezinde Topology Service ve Orchestrator Service yer alir. Topology Service projeleri ve topolojileri veri tabaninda saklar; Orchestrator Service ise topolojiyi calisir bir emulasyona donusturur.
+
+\textbf{Akis (kavramsal):}
+\begin{enumerate}
+\item Kullanici bir proje ve topoloji olusturur (Topology Service).
+\item Orchestrator, topoloji bilgilerini cekerek emulasyon container'ini ayaga kaldirir.
+\item Emulasyon container'i gRPC ile Orchestrator'a baglanir; cihazlar, linkler ve runtime ayarlar uygulanir.
+\item Device Manager ve Controller Manager runtime degisiklikleri (cihaz ekleme, controller baglama vb.) saglar.
+\end{enumerate}
+
+Bu akista, her topoloji icin container adlandirmasi ve altyapi isimlendirmesi standart bir on-ek ile yapilir; boylece coklu topoloji senaryolarinda kaynaklar net olarak ayrilir.
+
+\section{Emulasyon Runtime ve gRPC Kontrolu}
+Emulasyon container'i Mininet/Containernet/Mininet-WiFi kurulumunu ve P4 BMv2 bileşenlerini tek bir runtime icinde birlestirir. Orchestrator gRPC arayuzu uzerinden emulasyonu baslatir, durdurur, cihaz ve link ekler, komut calistirir ve metrikler elde eder. Bu tasarim, kontrol duzlemi ile veri duzlemi arasinda net bir ayrim olusturur.
+
+\section{Izolasyon Modeli ve Coklu Topoloji}
+Caduceus-Flux, iki temel isolasyon modelini destekler:
+
+\textbf{Paylasimli Mod.} Tüm topolojiler ortak altyapi servislerini kullanir. Kaynak verimliligi yuksektir.
+
+\textbf{Izole Mod (Topolojiye Ozel Altyapi).} Her topoloji icin ayri altyapi container setleri olusturulur (InfluxDB/Grafana/Consul/RabbitMQ/Kafka/Portainer vb.). Boylece metrik, olay ve konfigurasyon izolasyonu saglanir.
+
+Orchestrator, topolojiye ozel container, volume ve network isimlendirmelerini standart bir on-ek ile uretir. Bu yaklasim, hem isim cakismalarini engeller hem de kaynaklari net sekilde ayristirir.
+
+\section{Gozlemlenebilirlik ve Analitik}
+Platformun gozlemlenebilirlik katmani iki ana parcadan olusur:
+
+\textbf{Monitoring Service (Prometheus/InfluxDB).} Emulasyon container'indan gRPC uzerinden metrikleri alir ve InfluxDB'ye yazar. Prometheus icin export edilir.
+
+\textbf{Metrics Collector + Kafka + Flink.} gRPC akisi Metrics Collector tarafindan Kafka'ya aktarilir. Flink uzerinde akıs bazli ozellik cikarimi ve islenmis metrik uretimi yapilir. Decision Engine bu islenmis akisi kullanarak anomali, guvenlik, routing ve MANO kararlarini paralel olarak calistirir.
+
+Bu mimari, hem anlik gozlem hem de offline analiz icin gerekli veri katmanlarini sunar. JupyterLab entegrasyonu ise veri bilimciler icin pratik bir deney alanı saglar.
+
+\section{Snapshot/Restore ve Deneyin Tekrarlanabilirligi}
+Snapshot Service, emulasyon durumlarini yakalamak ve geri yuklemek icin merkezi bir mekanizma sunar. Emulasyon runtime tarafinda CRIU tabanli checkpoint alma ve docker commit gibi stratejiler bulunur. Snapshot Service ise bu sureci zamanlayabilir, metadata ile zenginlestirebilir ve depolamayi yonetir. Bu tasarim, deneylerin tekrarlanabilirligini guclendirir ve hata analizini kolaylastirir.
+
+\section{Programmable Data Plane (P4)}
+P4 Manager, P4 programlarini derler ve BMv2 switchleri yonetir. Bu sayede kullanicilar, programlanabilir veri duzlemi senaryolarini emulasyon ortaminda test edebilir. Emulasyon runtime'i, BMv2 switchi Mininet namespace icinde calistirarak veri duzlemi deneylerini destekler.
+
+\section{AI/LLM Kontrol Duzlemi ve MCP}
+Caduceus-Flux, LLM tabanli kontrolu AI Gateway uzerinden sunar. AI Gateway, birden cok saglayiciyi tek bir arayuzde birlestirir (OpenAI, Anthropic, Gemini, Ollama). MCP Tool Hub ise harici servisleri guvenli bir sekilde sisteme entegre eden registry ve proxy katmanidir. MCP Proxy, read-only ve path filtreleme gibi guvenlik sinirlariyla calisir.
+
+Bu tasarim, dogal dille topoloji yonetimi, otomatik operasyon senaryolari ve AI destekli ariza tespiti gibi kullanimlari kolaylastirir.
+
+\section{MANO/NFV Entegrasyonu}
+Platform, NFV icin iki katmanli bir yaklasim sunar:
+\begin{itemize}
+\item \textbf{MANO Service:} Yerel NFV orkestrasyon cekirdegi, gRPC ve REST arayuzleri ile VNF/NS yasam dongusunu yonetir.
+\item \textbf{OSM Connector + VIM Emulator:} ETSI OSM tarafina adaptorluk eden bir proxy ve OpenStack-benzeri VIM emulasyonu.
+\end{itemize}
+
+Bu sayede hem lokal hem de standart tabanli NFV deneyleri ayni platformda yurütulebilir.
+
+\section{Test, Diagnostik ve Calisma Akislari}
+Orchestrator Service, dahili test kosuculari ile emulasyonun calisabilirligini dogrular. PCAP yakalama destegi, paket seviyesinde inceleme saglar. Webshell servisi, Mininet CLI ve namespace icinde komut calistirma ile manuel diagnostik olani sunar. Bu uc katman (test, pcap, shell) bir arada hem otomasyon hem de manuel analiz akisini destekler.
+
+\section{Dagitim ve Calistirma Mimarisi}
+Caduceus-Flux, docker-compose ile coklu servis calistirmaya uygun sekilde tasarlanmistir. Paylasimli altyapi servisleri ve opsiyonel analitik stack (Kafka/Flink/HDFS/Spark/Hive/Hue) ayni platformda yer alir. Izole topoloji modunda ise Orchestrator dinamik container olusturarak topolojiye ozel altyapiyi ayaga kaldirir.
+
+\section{Temel Yetenekler ve Ozgun Katkilar}
+
+\subsection{Coklu Proje ve Topoloji Yonetimi}
+Caduceus-Flux, birden fazla proje olusturmayi ve her proje icinde birden fazla topoloji tanimlamayi dogal bir is akisi olarak destekler. Topolojiler yalnizca ardışık bicimde degil, eszamanli (concurrent) olarak da calistirilabilir; bu sayede farkli senaryolarin paralel yurutulmesi, karsilastirmali deneyler ve cok dilimli/cok alanli simulasyonlar mumkun hale gelir. Her topoloji icin izole altyapi kurulumu, gozlemlenebilirlik ve hata ayiklama sureclerini birbirinden bagimsiz hale getirir.
+
+\subsection{Mikroservis Mimarisi}
+Platformun mikroservis mimarisiyle gelistirilmis olmasi, yeni bilesenlerin eklenmesini ve mevcut fonksiyonlarin bagimsiz olceklenmesini kolaylastirir. Bu yaklasim sayesinde:
+\begin{itemize}
+\item Bilesenler bagimsiz guncellenebilir.
+\item Yatay olcekleme mumkundur.
+\item Hata izolasyonu saglanir.
+\item Teknoloji bagimsizligi desteklenir.
+\end{itemize}
+
+\subsection{CRIU ile Snapshot/Restore}
+Caduceus-Flux, CRIU (Checkpoint/Restore In Userspace) destegi ile Docker container'larin ve topoloji durumunun anlik snapshot'ini alabilir, daha sonra bu snapshot'a geri donerek simulasyonu kaldigi yerden devam ettirebilir. Sistem, snapshot alma islemlerini yalnizca manuel tetikleme ile sinirlamaz; schedule mekanizmasi ile belirli zaman araliklari veya senaryo akislari boyunca planli snapshot alinmasini da destekler. Bu ozellik, uzun sureli deneylerde sureklilik, karmasik hata durumlarinda kurtarma ve tekrarlanabilir deney tasarimi icin kritik avantaj saglar.
+
+\subsection{AI/MCP Entegrasyonu ile LLM Kontrolu}
+AI Gateway ve MCP Tool Hub sayesinde altyapi ve uygulama katmani LLM araciligiyla kontrol edilebilir. Kullanici, dogal dil ile topoloji yonetimi ve denetleme islemlerini baslatabilir; LLM ise sistemin sagladigi arac cagri arabirimlerini kullanarak bu islemleri guvenli ve izlenebilir bicimde gerceklestirir.
+
+\textbf{LLM uzerinden yonetilebilen islemler:}
+\begin{itemize}
+\item Topoloji olusturma, calistirma, durdurma
+\item Snapshot alma ve geri donme
+\item Test baslatma ve parametrik yapilandirma
+\item Metrik inceleme ve sorgulama
+\item Tanilama ve kok neden analizi
+\item Dogal dil uzerinden guvenli komut yurutme
+\end{itemize}
+
+Bu yaklasim, niyet tabanli ag yonetimi hedefiyle dogrudan ortusur ve LLM-MANO karar dongulerinin deneysel olarak sinanmasina imkan tanir.
+
+\subsection{Izole Gozlemlenebilirlik Yigini}
+Her bir topoloji icin izole altyapi yigini kurulabildiginden, metrik ve olay akislari birbirini etkilemeden izlenebilir. Bu yiginda asagidaki bilesenler one cikar:
+\begin{table}[htbp]
+\caption{Caduceus-Flux Gozlemlenebilirlik Bilesenleri}
+\label{tab:obs_components}
+\centering
+\small
+\begin{tabularx}{\linewidth}{l Y}
+\toprule
+\textbf{Bilesen} & \textbf{Fonksiyon} \\
+\midrule
+Grafana + Prometheus & Metrik izleme ve gorsellestirme \\
+Consul & Servis kesfi ve konfigurasyon yonetimi \\
+InfluxDB & Zaman serisi metrik depolama \\
+RabbitMQ / Kafka & Mesajlasma ve olay akisi yonetimi \\
+ONOS (opsiyonel) & SDN denetleyici arayuzu (web tabanli erisim) \\
+Portainer & Docker container yonetimi ve saglik durumu izleme \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Parametrik Test Servisi}
+Platform icindeki test servisi, topoloji ve cihaz bazli performans deneylerini parametrik olarak calistirmayi destekler. Bu testler senaryo akislarina entegre edilebilir; AI araciligiyla otomatik olarak baslatilip durdurulabilir.
+
+\begin{table}[htbp]
+\caption{Test Servisi Parametreleri}
+\label{tab:test_params}
+\centering
+\small
+\begin{tabularx}{\linewidth}{l l Y}
+\toprule
+\textbf{Kategori} & \textbf{Parametre} & \textbf{Aciklama} \\
+\midrule
+Ping Testleri & ping count (matrix) & Ping test sayisi \\
+Ping Testleri & sample interval (s) & Ornekleme araligi \\
+TCP Testleri & TCP seconds & TCP test suresi \\
+TCP Testleri & TCP parallel & Paralel TCP baglanti sayisi \\
+UDP Testleri & UDP seconds & UDP test suresi \\
+UDP Testleri & UDP bandwidth (Mbps) & UDP bant genisligi \\
+UDP Testleri & UDP packet size & UDP paket boyutu \\
+CPU Testleri & CPU workers/device & CPU test isci sayisi \\
+CPU Testleri & CPU duration (s) & CPU test suresi \\
+Bellek Testleri & Mem duration (s) & Bellek test suresi \\
+Bellek Testleri & Mem MB/device & Cihaz basina bellek kullanimi \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{AI Destekli Diagnostic Bileseni}
+Caduceus-Flux, InfluxDB'de depolanan metriklerin arayuz uzerinden sunulmasini ve bu metriklerin AI destekli analizine imkan tanir. Kullanici, ham metriklerin otesinde asagidaki durumlar icin LLM tabanli aciklama ve kok neden analizi alabilir:
+\begin{itemize}
+\item Gecikme artisi aciklamasi
+\item Paket kaybi anomalileri tespiti
+\item Darbogaz isaretleri analizi
+\item Kaynak tuketimi sapmalari degerlendirmesi
+\item Kok neden analizi ve iyilestirme onerileri
+\end{itemize}
+
+\section{Caduceus-Flux'in Ozgun Katki Ozeti}
+Caduceus-Flux'in literatur katkilari asagida ozetlenir:
+\begin{enumerate}
+\item \textbf{Tam Fonksiyon Destegi:} F1--F10 fonksiyonlarinin tamamini tek cati altinda sunma hedefi.
+\item \textbf{Coklu Proje/Topoloji:} Eszamanli topoloji calistirma ve karsilastirmali deney yetenegi.
+\item \textbf{Mikroservis Mimarisi:} Genisletilebilir, bagimsiz olceklenebilir ve guncellenebilir yapi.
+\item \textbf{CRIU Entegrasyonu:} Snapshot/restore ve schedule edilebilir checkpoint mekanizmasi.
+\item \textbf{AI + MCP:} LLM uzerinden uctan uca kontrol ve niyet tabanli yonetim.
+\item \textbf{Izole Gozlemlenebilirlik:} Topoloji basina bagimsiz izleme yigini.
+\item \textbf{Streaming Analitik:} Kafka/Flink tabanli gercek zamanli isleme ve karar motoru.
+\item \textbf{P4 Veri Duzlemi:} BMv2 ile programlanabilir veri duzlemi deneyleri.
+\end{enumerate}
+
+Bu butunlesik yapi, yalnizca topolojiyi calistirmayi degil, topolojiye ait metrik ve olaylarin cok katmanli sekilde gozlemlenmesini ve deneysel ciktinin sistematik olarak toplanmasini mumkun kilmaktadir. Caduceus-Flux, yalnizca bir topoloji editorunden ote, IoT-edge ortamlarinda LLM-MANO yaklasimlarinin sistematik olarak gelistirilebilecegi ve dogrulanabilecegi kapsamli bir deney platformu haline gelmektedir.
+
+\section{Sinirlar ve Gelecek Calismalar}
+Platformun mevcut sinirlari ve sonraki gelisim alanlari:
+\begin{itemize}
+\item \textbf{Tek host siniri:} Docker Compose temelli dagitim, yatay olceklendirme icin sinirlidir.
+\item \textbf{CRIU bagimliligi:} Canli snapshot icin sistemsel izinler ve kernel ozellikleri gerekir.
+\item \textbf{Kablosuz model dogrulugu:} Mininet-WiFi, fiziki katman ayrintilari icin sinirli olabilir.
+\item \textbf{Genis olcekli deneyler:} Daha buyuk topolojiler icin K8s tabanli dagitim gerekecektir.
+\end{itemize}
+
+Gelecek calismalarda Kubernetes tabanli dagitim, fiziksel testbed entegrasyonu, daha gelismis telemetri (IPFIX/NetFlow/flow-level) ve AI tabanli otonom policy yonetimi hedeflenebilir.
+
+\section{Sonuc}
+Caduceus-Flux, emulasyon dunyasini mikroservis tabanli modern bir kontrol mimarisiyle bulusturan, es zamanli coklu topoloji calistirmaya uygun, gozlemlenebilirlik ve otomasyona agirlik veren bir platformdur. Bu dokuman, platformun nasil calistigini mimari bakisla aciklamis, bilesenleri ve akislarini bir araya getirerek ``manual-textbook'' duzeyinde butunlesik bir anlatim sunmustur. Sonuc olarak Caduceus-Flux, hem arastirma hem de uygulama odakli ag deneyi ihtiyaclari icin guclu bir temel saglar.
+
+\end{document}

@@ -1,0 +1,31 @@
+{
+  "name": "wsn-sep",
+  "version": "1.0.0",
+  "description": "SEP - Stable Election Protocol for heterogeneous sensor networks",
+  "node_class": "algorithm:SEPNode",
+  "transport": "udp",
+  "listen_port": 50000,
+  "ip_family": "auto",
+  "wsn_config": {
+    "protocol": "sep",
+    "p": 0.1,
+    "alpha": 1.0,
+    "m": 0.1,
+    "max_rounds": 2000,
+    "packet_size": 4000,
+    "initial_energy": 0.5
+  },
+  "default_params": {
+    "p": 0.1,
+    "alpha": 1.0,
+    "m": 0.1,
+    "max_rounds": 2000,
+    "packet_size": 4000,
+    "initial_energy": 0.5,
+    "discovery_seconds": 2.0,
+    "adv_listen_time": 1.5,
+    "join_listen_time": 1.0,
+    "frame_time": 2.0,
+    "round_time": 5.0
+  }
+}

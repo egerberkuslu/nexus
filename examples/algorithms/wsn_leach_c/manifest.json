@@ -1,0 +1,28 @@
+{
+  "name": "wsn-leach-c",
+  "version": "1.0.0",
+  "description": "LEACH-C - Centralized LEACH with optimal CH selection by Base Station",
+  "node_class": "algorithm:LEACHCNode",
+  "transport": "udp",
+  "listen_port": 50000,
+  "ip_family": "auto",
+  "wsn_config": {
+    "protocol": "leach-c",
+    "p": 0.05,
+    "max_rounds": 2000,
+    "packet_size": 4000,
+    "initial_energy": 0.5
+  },
+  "default_params": {
+    "p": 0.05,
+    "max_rounds": 2000,
+    "packet_size": 4000,
+    "initial_energy": 0.5,
+    "discovery_seconds": 2.0,
+    "status_collect_time": 2.0,
+    "assignment_wait_time": 3.0,
+    "min_ch_distance": 20.0,
+    "frame_time": 2.0,
+    "round_time": 5.0
+  }
+}

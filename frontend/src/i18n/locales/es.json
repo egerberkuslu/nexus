@@ -1,0 +1,454 @@
+{
+  "app": {
+    "name": "NEXUS - Network EXperimentation Unified System",
+    "tagline": "Plataforma de Emulación de Redes"
+  },
+  "nav": {
+    "home": "Inicio",
+    "features": "Características",
+    "projects": "Proyectos",
+    "topology": "Topología",
+    "monitoring": "Monitoreo",
+    "settings": "Configuración",
+    "networkManager": "Administrador de Red",
+    "apiDocs": "Documentación de API",
+    "snapshots": "Capturas",
+    "schedules": "Programaciones",
+    "infrastructure": "Infraestructura",
+    "aiConsole": "Consola IA",
+    "aiSettings": "Configuración IA",
+    "overview": "Resumen",
+    "hostConfig": "Configuración de Host",
+    "switchConfig": "Configuración de Switch",
+    "routerConfig": "Configuración de Router",
+    "diagnostics": "Diagnósticos",
+    "statistics": "Estadísticas"
+  },
+  "theme": {
+    "light": "Modo Claro",
+    "dark": "Modo Oscuro",
+    "toggle": "Cambiar Tema"
+  },
+  "language": {
+    "select": "Seleccionar Idioma",
+    "en": "Inglés",
+    "es": "Español",
+    "de": "Alemán",
+    "fr": "Francés",
+    "tr": "Turco"
+  },
+  "home": {
+    "welcome": "Bienvenido a NEXUS - Network EXperimentation Unified System",
+    "description": "Una plataforma integral de emulación de redes con soporte para controladores SDN",
+    "getStarted": "Comenzar",
+    "features": {
+      "title": "Características",
+      "topology": "Diseñador de Topología Interactivo",
+      "topologyDesc": "Crea y visualiza topologías de red complejas con interfaz de arrastrar y soltar",
+      "monitoring": "Monitoreo en Tiempo Real",
+      "monitoringDesc": "Monitorea el rendimiento de la red con métricas en vivo y análisis",
+      "controller": "Soporte para Controlador SDN",
+      "controllerDesc": "Integra con Ryu, POX, OpenDaylight y otros controladores SDN",
+      "p4": "Programación P4",
+      "p4Desc": "Programa el comportamiento de la red con soporte para lenguaje P4"
+    }
+  },
+  "projects": {
+    "title": "Proyectos",
+    "subtitle": "Administra tus proyectos de topología de red",
+    "create": "Crear Nuevo Proyecto",
+    "name": "Nombre del Proyecto",
+    "namePlaceholder": "Ingresa el nombre del proyecto",
+    "description": "Descripción",
+    "descriptionPlaceholder": "Ingresa la descripción del proyecto (opcional)",
+    "noDescription": "Sin descripción proporcionada",
+    "created": "Creado",
+    "modified": "Modificado",
+    "actions": "Acciones",
+    "edit": "Editar",
+    "delete": "Eliminar",
+    "open": "Abrir",
+    "noProjects": "Aún no hay proyectos",
+    "createFirst": "Crea tu primer proyecto para comenzar",
+    "confirmDelete": "¿Estás seguro de que deseas eliminar este proyecto?"
+  },
+  "topology": {
+    "title": "Editor de Topología",
+    "designer": "Diseñador de Topología",
+    "nodes": "Nodos",
+    "links": "Enlaces",
+    "properties": "Propiedades",
+    "addNode": "Agregar Nodo",
+    "addLink": "Agregar Enlace",
+    "deleteNode": "Eliminar Nodo",
+    "deleteLink": "Eliminar Enlace",
+    "nodeTypes": {
+      "host": "Host",
+      "switch": "Switch",
+      "router": "Router",
+      "controller": "Controlador"
+    },
+    "save": "Guardar Topología",
+    "load": "Cargar Topología",
+    "clear": "Limpiar Todo",
+    "export": "Exportar",
+    "import": "Importar",
+    "devices": {
+      "title": "Dispositivos",
+      "host": "Host",
+      "switch": "Switch",
+      "router": "Router",
+      "ap": "Punto de Acceso",
+      "station": "Estación",
+      "container": "Contenedor",
+      "p4switch": "Switch P4",
+      "controller": "Controlador"
+    },
+    "categories": {
+      "network": "Red",
+      "wireless": "Inalámbrico",
+      "sdn": "SDN",
+      "compute": "Computación"
+    },
+    "stats": {
+      "title": "Estadísticas",
+      "nodes": "Nodos",
+      "links": "Enlaces"
+    },
+    "instructions": {
+      "title": "Instrucciones",
+      "addDevice": "Haz clic en el dispositivo para agregar al lienzo",
+      "moveNode": "Arrastra para mover nodos",
+      "connectNodes": "Conecta nodos arrastrando desde los puertos",
+      "deleteNode": "Eliminar con Retroceso/Suprimir",
+      "zoom": "Zoom con la rueda del ratón"
+    },
+    "templates": "Plantillas"
+  },
+  "monitoring": {
+    "title": "Monitoreo de Red",
+    "overview": "Resumen",
+    "bandwidth": "Ancho de Banda",
+    "latency": "Latencia",
+    "packets": "Paquetes",
+    "errors": "Errores",
+    "refresh": "Tasa de Actualización",
+    "realtime": "Tiempo Real",
+    "charts": {
+      "bandwidth": "Uso de Ancho de Banda",
+      "latency": "Latencia de Red",
+      "throughput": "Rendimiento",
+      "packetLoss": "Pérdida de Paquetes"
+    }
+  },
+  "controller": {
+    "title": "Configuración del Controlador",
+    "type": "Tipo de Controlador",
+    "host": "Host",
+    "port": "Puerto",
+    "start": "Iniciar Controlador",
+    "stop": "Detener Controlador",
+    "status": "Estado",
+    "running": "En Ejecución",
+    "stopped": "Detenido",
+    "configure": "Configurar"
+  },
+  "p4editor": {
+    "title": "Editor P4",
+    "compile": "Compilar",
+    "deploy": "Desplegar",
+    "validate": "Validar",
+    "template": "Cargar Plantilla",
+    "save": "Guardar Programa"
+  },
+  "webshell": {
+    "title": "Terminal Web",
+    "connect": "Conectar",
+    "disconnect": "Desconectar",
+    "clear": "Limpiar",
+    "device": "Seleccionar Dispositivo",
+    "enterCommand": "Ingresa comando..."
+  },
+  "common": {
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "delete": "Eliminar",
+    "edit": "Editar",
+    "create": "Crear",
+    "update": "Actualizar",
+    "close": "Cerrar",
+    "apply": "Aplicar",
+    "reset": "Restablecer",
+    "search": "Buscar",
+    "filter": "Filtrar",
+    "sort": "Ordenar",
+    "export": "Exportar",
+    "import": "Importar",
+    "loading": "Cargando...",
+    "error": "Error",
+    "success": "Éxito",
+    "warning": "Advertencia",
+    "info": "Información",
+    "confirm": "Confirmar",
+    "yes": "Sí",
+    "no": "No",
+    "explore": "Explorar",
+    "refresh": "Actualizar",
+    "quickActions": "Acciones Rápidas"
+  },
+  "network": {
+    "start": "Iniciar Red",
+    "stop": "Detener Red",
+    "running": "Red en Ejecución",
+    "stopped": "Red Detenida",
+    "health": "Estado de la Red",
+    "nodes": "Nodos de Red"
+  },
+  "status": {
+    "networkRunning": "Red en Ejecución",
+    "networkStopped": "Red Detenida",
+    "allOnline": "Todos En Línea",
+    "allOperational": "Todos Operativos",
+    "allActive": "Todos Activos",
+    "running": "En Ejecución",
+    "stopped": "Detenido",
+    "healthy": "Saludable"
+  },
+  "nodes": {
+    "hosts": "Hosts",
+    "switches": "Switches",
+    "routers": "Routers",
+    "controllers": "Controladores"
+  },
+  "actions": {
+    "pingAll": "Ping a Todos",
+    "checkTopology": "Verificar Topología",
+    "addHost": "Agregar Host",
+    "configureRouter": "Configurar Router"
+  },
+  "host": {
+    "configuration": "Configuración de Host",
+    "hostname": "Nombre de Host",
+    "ipAddress": "Dirección IP",
+    "netmask": "Máscara de Red",
+    "gateway": "Puerta de Enlace",
+    "dns": "Servidores DNS",
+    "services": "Servicios"
+  },
+  "switch": {
+    "configuration": "Configuración de Switch",
+    "dpid": "ID de Ruta de Datos",
+    "controller": "Controlador",
+    "flowTable": "Tabla de Flujo",
+    "addFlow": "Agregar Flujo"
+  },
+  "router": {
+    "configuration": "Configuración de Router",
+    "interfaces": "Interfaces",
+    "protocols": "Protocolos de Enrutamiento",
+    "frrIntegration": "Integración FRR",
+    "prepareDaemons": "Preparar Daemons",
+    "startRouting": "Iniciar Enrutamiento",
+    "viewLogs": "Ver Registros"
+  },
+  "diagnostics": {
+    "title": "Diagnósticos de Red",
+    "tools": "Herramientas de Diagnóstico",
+    "healthCheck": "Verificación de Estado",
+    "connectivity": "Conectividad",
+    "pingTest": "Prueba de Ping",
+    "arpTables": "Tablas ARP",
+    "routing": "Enrutamiento",
+    "switchFlows": "Flujos de Switch",
+    "autoFix": "Reparación Automática",
+    "runFullScan": "Ejecutar Escaneo Completo",
+    "exportReport": "Exportar Informe",
+    "recommendations": "Recomendaciones"
+  },
+  "stats": {
+    "packetsSent": "Paquetes Enviados",
+    "packetsReceived": "Paquetes Recibidos",
+    "bandwidth": "Ancho de Banda",
+    "totalData": "Datos Totales",
+    "performanceMetrics": "Métricas de Rendimiento",
+    "latency": "Latencia",
+    "activeFlows": "Flujos Activos",
+    "interfaces": "Interfaces",
+    "sdnMode": "Modo SDN"
+  },
+  "notifications": {
+    "success": {
+      "saved": "Guardado exitosamente",
+      "deleted": "Eliminado exitosamente",
+      "created": "Creado exitosamente",
+      "updated": "Actualizado exitosamente"
+    },
+    "error": {
+      "failed": "Operación fallida",
+      "network": "Error de red",
+      "notFound": "No encontrado",
+      "unauthorized": "No autorizado"
+    }
+  },
+  "errors": {
+    "notFound": "Página no encontrada",
+    "notFoundMessage": "La página que buscas no existe o ha sido movida."
+  },
+  "features": {
+    "hero": {
+      "badge": "Plataforma Integral de Emulación de Redes",
+      "title": "Características de la Plataforma",
+      "subtitle": "Todo lo que necesitas para diseñar, desplegar y monitorear topologías de red complejas con controladores SDN, switches programables y protocolos de enrutamiento dinámico.",
+      "learnMore": "Más Información"
+    },
+    "coreTitle": "Características Principales",
+    "coreSubtitle": "Capacidades líderes en la industria para investigación, educación y desarrollo de redes",
+    "advancedTitle": "Capacidades Avanzadas",
+    "advancedSubtitle": "Herramientas poderosas para ingenieros de red profesionales e investigadores",
+    "specsTitle": "Especificaciones Técnicas",
+    "architectureTitle": "Arquitectura Moderna",
+    "architectureSubtitle": "Construido pensando en escalabilidad, rendimiento y confiabilidad",
+    "core": {
+      "topology": {
+        "title": "Diseñador de Topología Interactivo",
+        "description": "Interfaz de arrastrar y soltar para crear topologías de red complejas con más de 8 tipos de dispositivos, incluyendo hosts, switches, routers, contenedores y switches P4."
+      },
+      "sdn": {
+        "title": "Soporte de Controlador SDN",
+        "description": "Soporte integrado para múltiples controladores SDN: OS-Ken, Ryu, OpenDaylight, ONOS, POX y Floodlight con OpenFlow 1.0-1.5."
+      },
+      "p4": {
+        "title": "Programación P4",
+        "description": "Soporte completo del lenguaje P4 para planos de datos programables con compilación y despliegue en tiempo de ejecución en switches P4."
+      },
+      "monitoring": {
+        "title": "Monitoreo en Tiempo Real",
+        "description": "Monitoreo integral con paneles de Prometheus y Grafana que rastrean ancho de banda, latencia, pérdida de paquetes y métricas de dispositivos."
+      },
+      "protocols": {
+        "title": "Gestión de Protocolos",
+        "description": "Soporte para protocolos de enrutamiento dinámico: OSPF, BGP, RIP, IS-IS, EIGRP y rutas estáticas con integración FRRouting (FRR)."
+      },
+      "webshell": {
+        "title": "Acceso Web Shell",
+        "description": "Acceso de terminal basado en navegador a cualquier dispositivo en la emulación para ejecución de comandos y depuración en tiempo real."
+      },
+      "container": {
+        "title": "Integración de Contenedores",
+        "description": "Soporte nativo de contenedores Docker con imágenes personalizadas, variables de entorno, volúmenes y límites de recursos."
+      },
+      "snapshot": {
+        "title": "Instantánea y Restauración",
+        "description": "Captura instantáneas completas del estado de la red, incluyendo configuraciones de dispositivos, tablas de flujo y tablas de enrutamiento para restauración posterior."
+      }
+    },
+    "advanced": {
+      "importExport": {
+        "title": "Importar/Exportar",
+        "description": "Exporta topologías como JSON para compartir y control de versiones. Importa topologías predefinidas para despliegue instantáneo."
+      },
+      "generator": {
+        "title": "Generador de Topología",
+        "description": "Generación de topologías con IA con patrones predefinidos (Lineal, Estrella, Árbol, Malla) y parámetros personalizados."
+      },
+      "deviceManager": {
+        "title": "Gestor de Dispositivos",
+        "description": "Operaciones de dispositivos en tiempo de ejecución: agregar, eliminar o modificar dispositivos en emulaciones en vivo sin detener la red."
+      },
+      "orchestrator": {
+        "title": "Orquestador",
+        "description": "Servicio de orquestación centralizado que gestiona el ciclo de vida de la emulación, asignación de recursos y coordinación de servicios."
+      },
+      "multiDb": {
+        "title": "Soporte Multi-Base de Datos",
+        "description": "PostgreSQL para datos relacionales, MongoDB para instantáneas, InfluxDB para métricas y Redis para caché."
+      },
+      "serviceDiscovery": {
+        "title": "Descubrimiento de Servicios",
+        "description": "Registro de servicios basado en Consul para descubrimiento automático de servicios y monitoreo de salud."
+      }
+    },
+    "specs": {
+      "devices": {
+        "category": "Dispositivos Soportados",
+        "items": ["Hosts", "Switches OVS", "Puentes Linux", "Routers (FRR)", "Puntos de Acceso", "Estaciones WiFi", "Contenedores Docker", "Switches P4"]
+      },
+      "networkFeatures": {
+        "category": "Características de Red",
+        "items": ["Control de Ancho de Banda", "Simulación de Latencia", "Pérdida de Paquetes", "Jitter", "Control de Calidad de Enlace", "Configuración QoS"]
+      },
+      "controllers": {
+        "category": "Controladores SDN",
+        "items": ["OS-Ken (fork de Ryu)", "Ryu", "OpenDaylight", "ONOS", "POX", "Floodlight", "Controladores Personalizados"]
+      },
+      "protocols": {
+        "category": "Protocolos de Enrutamiento",
+        "items": ["OSPF v2/v3", "BGP", "RIP v1/v2", "IS-IS", "EIGRP", "Rutas Estáticas"]
+      }
+    },
+    "architecture": {
+      "microservices": {
+        "title": "Arquitectura de Microservicios",
+        "description": "Más de 12 servicios independientes para escalabilidad y resistencia"
+      },
+      "eventDriven": {
+        "title": "Basado en Eventos",
+        "description": "Broker de mensajes RabbitMQ para propagación de eventos en tiempo real"
+      },
+      "containerNative": {
+        "title": "Nativo en Contenedores",
+        "description": "Totalmente contenerizado con orquestación Docker Compose"
+      }
+    },
+    "tags": {
+      "visualEditor": "Editor Visual",
+      "realtime": "Tiempo Real",
+      "multiDevice": "Multi-dispositivo",
+      "openflow": "OpenFlow",
+      "multiController": "Multi-controlador",
+      "restApi": "API REST",
+      "p4runtime": "P4Runtime",
+      "grpc": "gRPC",
+      "programmable": "Programable",
+      "prometheus": "Prometheus",
+      "grafana": "Grafana",
+      "liveMetrics": "Métricas en Vivo",
+      "frr": "FRR",
+      "dynamicRouting": "Enrutamiento Dinámico",
+      "multiProtocol": "Multi-protocolo",
+      "terminal": "Terminal",
+      "ssh": "SSH",
+      "docker": "Docker",
+      "containerized": "Contenerizado",
+      "microservices": "Microservicios",
+      "stateManagement": "Gestión de Estado",
+      "backup": "Respaldo",
+      "restore": "Restaurar"
+    },
+    "cta": {
+      "title": "¿Listo para Comenzar?",
+      "subtitle": "Crea tu primera topología de red y experimenta el poder de NEXUS - Network EXperimentation Unified System",
+      "documentation": "Ver Documentación"
+    }
+  },
+  "apiDocs": {
+    "title": "Documentación de Servicios NEXUS - Network EXperimentation Unified System",
+    "subtitle": "Documentación de API",
+    "totalServices": "Servicios Totales",
+    "running": "En Ejecución",
+    "stopped": "Detenido",
+    "unknown": "Desconocido",
+    "searchPlaceholder": "Buscar servicios... (ej. topology, snapshot, monitoring)",
+    "documentation": "Documentación",
+    "swaggerUI": "Swagger UI",
+    "redoc": "ReDoc",
+    "openapiJson": "OpenAPI JSON",
+    "noServicesFound": "No se encontraron servicios",
+    "noServicesMatch": "No hay servicios que coincidan",
+    "noServicesAvailable": "No hay servicios disponibles actualmente",
+    "aboutTitle": "Acerca de la Documentación de API",
+    "aboutDescription": "Esta página proporciona acceso a la documentación OpenAPI para todos los microservicios de NEXUS - Network EXperimentation Unified System. Cada servicio expone su esquema de API a través de Swagger UI, ReDoc y OpenAPI JSON sin procesar.",
+    "tip": "Consejo:",
+    "tipDescription": "Si ReDoc está en blanco debido a CDNs bloqueadas, utilice los puntos finales de OpenAPI JSON para ver las especificaciones sin procesar."
+  }
+}

@@ -1,0 +1,479 @@
+{
+  "app": {
+    "name": "NEXUS - Network EXperimentation Unified System",
+    "tagline": "Ağ Emülasyon Platformu"
+  },
+  "nav": {
+    "home": "Ana Sayfa",
+    "features": "Özellikler",
+    "projects": "Projeler",
+    "topology": "Topoloji",
+    "monitoring": "İzleme",
+    "settings": "Ayarlar",
+    "networkManager": "Ağ Yöneticisi",
+    "apiDocs": "API Dokümantasyonu",
+    "snapshots": "Anlık Görüntüler",
+    "schedules": "Programlar",
+    "infrastructure": "Altyapı",
+    "aiConsole": "AI Konsolu",
+    "aiSettings": "AI Ayarları",
+    "overview": "Genel Bakış",
+    "hostConfig": "Host Yapılandırması",
+    "switchConfig": "Switch Yapılandırması",
+    "routerConfig": "Router Yapılandırması",
+    "diagnostics": "Teşhis",
+    "statistics": "İstatistikler"
+  },
+  "theme": {
+    "light": "Aydınlık Mod",
+    "dark": "Karanlık Mod",
+    "toggle": "Tema Değiştir"
+  },
+  "language": {
+    "select": "Dil Seçin",
+    "en": "İngilizce",
+    "es": "İspanyolca",
+    "de": "Almanca",
+    "fr": "Fransızca",
+    "tr": "Türkçe"
+  },
+  "home": {
+    "welcome": "NEXUS - Network EXperimentation Unified System'a Hoş Geldiniz",
+    "description": "SDN kontrolcü desteği ile kapsamlı ağ emülasyon platformu",
+    "getStarted": "Başlayın",
+    "features": {
+      "title": "Özellikler",
+      "topology": "Etkileşimli Topoloji Tasarımcısı",
+      "topologyDesc": "Sürükle-bırak arayüzü ile karmaşık ağ topolojileri oluşturun ve görselleştirin",
+      "monitoring": "Gerçek Zamanlı İzleme",
+      "monitoringDesc": "Canlı metrikler ve analizlerle ağ performansını izleyin",
+      "controller": "SDN Kontrolcü Desteği",
+      "controllerDesc": "Ryu, POX, OpenDaylight ve diğer SDN kontrolcüleri ile entegrasyon",
+      "p4": "P4 Programlama",
+      "p4Desc": "P4 dil desteği ile ağ davranışını programlayın"
+    }
+  },
+  "projects": {
+    "title": "Projeler",
+    "subtitle": "Ağ topolojisi projelerinizi yönetin",
+    "create": "Yeni Proje Oluştur",
+    "name": "Proje Adı",
+    "namePlaceholder": "Proje adını girin",
+    "description": "Açıklama",
+    "descriptionPlaceholder": "Proje açıklamasını girin (isteğe bağlı)",
+    "noDescription": "Açıklama sağlanmadı",
+    "created": "Oluşturuldu",
+    "modified": "Değiştirildi",
+    "actions": "İşlemler",
+    "edit": "Düzenle",
+    "delete": "Sil",
+    "open": "Aç",
+    "noProjects": "Henüz proje yok",
+    "createFirst": "Başlamak için ilk projenizi oluşturun",
+    "confirmDelete": "Bu projeyi silmek istediğinizden emin misiniz?"
+  },
+  "topology": {
+    "title": "Topoloji Düzenleyici",
+    "designer": "Topoloji Tasarımcısı",
+    "nodes": "Düğümler",
+    "links": "Bağlantılar",
+    "properties": "Özellikler",
+    "addNode": "Düğüm Ekle",
+    "addLink": "Bağlantı Ekle",
+    "deleteNode": "Düğümü Sil",
+    "deleteLink": "Bağlantıyı Sil",
+    "nodeTypes": {
+      "host": "Host",
+      "switch": "Switch",
+      "router": "Router",
+      "controller": "Kontrolcü"
+    },
+    "save": "Topolojiyi Kaydet",
+    "load": "Topolojiyi Yükle",
+    "clear": "Tümünü Temizle",
+    "export": "Dışa Aktar",
+    "import": "İçe Aktar",
+    "devices": {
+      "title": "Cihazlar",
+      "host": "Host",
+      "switch": "Switch",
+      "router": "Router",
+      "ap": "Erişim Noktası",
+      "station": "İstasyon",
+      "container": "Konteyner",
+      "p4switch": "P4 Switch",
+      "controller": "Kontrolcü"
+    },
+    "categories": {
+      "network": "Ağ",
+      "wireless": "Kablosuz",
+      "sdn": "SDN",
+      "compute": "Hesaplama"
+    },
+    "stats": {
+      "title": "İstatistikler",
+      "nodes": "Düğümler",
+      "links": "Bağlantılar"
+    },
+    "instructions": {
+      "title": "Talimatlar",
+      "addDevice": "Tuvale eklemek için cihaza tıklayın",
+      "moveNode": "Düğümleri taşımak için sürükleyin",
+      "connectNodes": "Portlardan sürükleyerek düğümleri bağlayın",
+      "deleteNode": "Backspace/Delete ile sil",
+      "zoom": "Fare tekerleği ile yakınlaştır"
+    },
+    "templates": "Şablonlar"
+  },
+  "monitoring": {
+    "title": "Ağ İzleme",
+    "overview": "Genel Bakış",
+    "bandwidth": "Bant Genişliği",
+    "latency": "Gecikme",
+    "packets": "Paketler",
+    "errors": "Hatalar",
+    "refresh": "Yenileme Hızı",
+    "realtime": "Gerçek Zamanlı",
+    "charts": {
+      "bandwidth": "Bant Genişliği Kullanımı",
+      "latency": "Ağ Gecikmesi",
+      "throughput": "Aktarım Hızı",
+      "packetLoss": "Paket Kaybı"
+    }
+  },
+  "controller": {
+    "title": "Kontrolcü Yapılandırması",
+    "type": "Kontrolcü Türü",
+    "host": "Host",
+    "port": "Port",
+    "start": "Kontrolcüyü Başlat",
+    "stop": "Kontrolcüyü Durdur",
+    "status": "Durum",
+    "running": "Çalışıyor",
+    "stopped": "Durduruldu",
+    "configure": "Yapılandır"
+  },
+  "p4editor": {
+    "title": "P4 Düzenleyici",
+    "compile": "Derle",
+    "deploy": "Dağıt",
+    "validate": "Doğrula",
+    "template": "Şablon Yükle",
+    "save": "Programı Kaydet"
+  },
+  "webshell": {
+    "title": "Web Terminal",
+    "connect": "Bağlan",
+    "disconnect": "Bağlantıyı Kes",
+    "clear": "Temizle",
+    "device": "Cihaz Seç",
+    "enterCommand": "Komut girin..."
+  },
+  "common": {
+    "save": "Kaydet",
+    "cancel": "İptal",
+    "delete": "Sil",
+    "edit": "Düzenle",
+    "create": "Oluştur",
+    "update": "Güncelle",
+    "close": "Kapat",
+    "apply": "Uygula",
+    "reset": "Sıfırla",
+    "search": "Ara",
+    "filter": "Filtrele",
+    "sort": "Sırala",
+    "export": "Dışa Aktar",
+    "import": "İçe Aktar",
+    "loading": "Yükleniyor...",
+    "error": "Hata",
+    "success": "Başarılı",
+    "warning": "Uyarı",
+    "info": "Bilgi",
+    "confirm": "Onayla",
+    "yes": "Evet",
+    "no": "Hayır",
+    "explore": "Keşfet",
+    "refresh": "Yenile",
+    "quickActions": "Hızlı İşlemler"
+  },
+  "network": {
+    "start": "Ağı Başlat",
+    "stop": "Ağı Durdur",
+    "running": "Ağ Çalışıyor",
+    "stopped": "Ağ Durduruldu",
+    "health": "Ağ Sağlığı",
+    "nodes": "Ağ Düğümleri"
+  },
+  "status": {
+    "networkRunning": "Ağ Çalışıyor",
+    "networkStopped": "Ağ Durduruldu",
+    "allOnline": "Tümü Çevrimiçi",
+    "allOperational": "Tümü Çalışır Durumda",
+    "allActive": "Tümü Aktif",
+    "running": "Çalışıyor",
+    "stopped": "Durduruldu",
+    "healthy": "Sağlıklı"
+  },
+  "nodes": {
+    "hosts": "Host'lar",
+    "switches": "Switch'ler",
+    "routers": "Router'lar",
+    "controllers": "Kontrolcüler"
+  },
+  "actions": {
+    "pingAll": "Tümüne Ping At",
+    "checkTopology": "Topolojiyi Kontrol Et",
+    "addHost": "Host Ekle",
+    "configureRouter": "Router'ı Yapılandır"
+  },
+  "host": {
+    "configuration": "Host Yapılandırması",
+    "hostname": "Host Adı",
+    "ipAddress": "IP Adresi",
+    "netmask": "Ağ Maskesi",
+    "gateway": "Ağ Geçidi",
+    "dns": "DNS Sunucuları",
+    "services": "Servisler"
+  },
+  "switch": {
+    "configuration": "Switch Yapılandırması",
+    "dpid": "Veri Yolu ID",
+    "controller": "Kontrolcü",
+    "flowTable": "Akış Tablosu",
+    "addFlow": "Akış Ekle"
+  },
+  "router": {
+    "configuration": "Router Yapılandırması",
+    "interfaces": "Arayüzler",
+    "protocols": "Yönlendirme Protokolleri",
+    "frrIntegration": "FRR Entegrasyonu",
+    "prepareDaemons": "Daemon'ları Hazırla",
+    "startRouting": "Yönlendirmeyi Başlat",
+    "viewLogs": "Logları Görüntüle"
+  },
+  "diagnostics": {
+    "title": "Ağ Teşhisi",
+    "tools": "Teşhis Araçları",
+    "healthCheck": "Sağlık Kontrolü",
+    "connectivity": "Bağlantı",
+    "pingTest": "Ping Testi",
+    "arpTables": "ARP Tabloları",
+    "routing": "Yönlendirme",
+    "switchFlows": "Switch Akışları",
+    "autoFix": "Otomatik Düzelt",
+    "runFullScan": "Tam Tarama Çalıştır",
+    "exportReport": "Raporu Dışa Aktar",
+    "recommendations": "Öneriler"
+  },
+  "container": {
+    "ui": "Konteyner Arayüzü",
+    "selectContainer": "Konteyner Arayüzü",
+    "selectService": "Servis Seçin",
+    "selectNode": "Düğüm Seçin",
+    "selectNodeToView": "Arayüzünü görmek için bir düğüm ve port seçin",
+    "port": "Port",
+    "customPort": "Özel Port",
+    "viewMode": "Görünüm Modu",
+    "emulationNode": "Emülasyon Düğümü",
+    "emulationNodes": "Emülasyon Düğümleri",
+    "infrastructureService": "Altyapı",
+    "infrastructureServices": "Altyapı Servisleri",
+    "emulationNotRunning": "Düğüm arayüzlerini görmek için emülasyonu başlatın",
+    "noNodes": "Emülasyonda konteyner veya host düğümü bulunamadı",
+    "loadError": "Arayüz yüklenemedi",
+    "loadErrorDesc": "Servis çalışmıyor olabilir veya port yanlış olabilir. Düğüm/servisin erişilebilir olduğunu doğrulayın.",
+    "connectionFailed": "Bağlantı Başarısız",
+    "cannotConnect": "Şu adrese bağlantı kurulamıyor",
+    "possibleReasons": "Olası nedenler:",
+    "serviceNotRunning": "Bu portta servis çalışmıyor",
+    "portIncorrect": "Port numarası yanlış",
+    "firewallBlocking": "Güvenlik duvarı veya ağ bağlantıyı engelliyor",
+    "nodeNotReachable": "Düğüme tarayıcınızdan erişilemiyor"
+  },
+  "stats": {
+    "packetsSent": "Gönderilen Paketler",
+    "packetsReceived": "Alınan Paketler",
+    "bandwidth": "Bant Genişliği",
+    "totalData": "Toplam Veri",
+    "performanceMetrics": "Performans Metrikleri",
+    "latency": "Gecikme",
+    "activeFlows": "Aktif Akışlar",
+    "interfaces": "Arayüzler",
+    "sdnMode": "SDN Modu"
+  },
+  "notifications": {
+    "success": {
+      "saved": "Başarıyla kaydedildi",
+      "deleted": "Başarıyla silindi",
+      "created": "Başarıyla oluşturuldu",
+      "updated": "Başarıyla güncellendi"
+    },
+    "error": {
+      "failed": "İşlem başarısız",
+      "network": "Ağ hatası",
+      "notFound": "Bulunamadı",
+      "unauthorized": "Yetkisiz"
+    }
+  },
+  "errors": {
+    "notFound": "Sayfa Bulunamadı",
+    "notFoundMessage": "Aradığınız sayfa mevcut değil veya taşınmış."
+  },
+  "features": {
+    "hero": {
+      "badge": "Kapsamlı Ağ Emülasyon Platformu",
+      "title": "Platform Özellikleri",
+      "subtitle": "SDN kontrolörleri, programlanabilir anahtarlar ve dinamik yönlendirme protokolleri ile karmaşık ağ topolojilerini tasarlamak, dağıtmak ve izlemek için ihtiyacınız olan her şey.",
+      "learnMore": "Daha Fazla Bilgi"
+    },
+    "coreTitle": "Temel Özellikler",
+    "coreSubtitle": "Ağ araştırması, eğitimi ve geliştirmesi için sektör lideri yetenekler",
+    "advancedTitle": "Gelişmiş Yetenekler",
+    "advancedSubtitle": "Profesyonel ağ mühendisleri ve araştırmacılar için güçlü araçlar",
+    "specsTitle": "Teknik Özellikler",
+    "architectureTitle": "Modern Mimari",
+    "architectureSubtitle": "Ölçeklenebilirlik, performans ve güvenilirlik göz önünde bulundurularak tasarlandı",
+    "core": {
+      "topology": {
+        "title": "Etkileşimli Topoloji Tasarımcısı",
+        "description": "Host, anahtar, yönlendirici, konteyner ve P4 anahtarları dahil 8'den fazla cihaz türü ile karmaşık ağ topolojileri oluşturmak için sürükle-bırak arayüzü."
+      },
+      "sdn": {
+        "title": "SDN Kontrolör Desteği",
+        "description": "Birden fazla SDN kontrolörü için entegre destek: OS-Ken, Ryu, OpenDaylight, ONOS, POX ve Floodlight, OpenFlow 1.0-1.5 ile."
+      },
+      "p4": {
+        "title": "P4 Programlama",
+        "description": "Çalışma zamanı derleme ve P4 anahtarlarına dağıtım ile programlanabilir veri düzlemleri için tam P4 dili desteği."
+      },
+      "monitoring": {
+        "title": "Gerçek Zamanlı İzleme",
+        "description": "Bant genişliği, gecikme, paket kaybı ve cihaz metriklerini izleyen Prometheus ve Grafana panelleri ile kapsamlı izleme."
+      },
+      "protocols": {
+        "title": "Protokol Yönetimi",
+        "description": "Dinamik yönlendirme protokolleri desteği: OSPF, BGP, RIP, IS-IS, EIGRP ve FRRouting (FRR) entegrasyonu ile statik rotalar."
+      },
+      "webshell": {
+        "title": "Web Shell Erişimi",
+        "description": "Gerçek zamanlı komut yürütme ve hata ayıklama için emülasyondaki herhangi bir cihaza tarayıcı tabanlı terminal erişimi."
+      },
+      "container": {
+        "title": "Konteyner Entegrasyonu",
+        "description": "Özel imajlar, ortam değişkenleri, hacimler ve kaynak limitleri ile yerel Docker konteyneri desteği."
+      },
+      "snapshot": {
+        "title": "Anlık Görüntü ve Geri Yükleme",
+        "description": "Cihaz yapılandırmaları, akış tabloları ve yönlendirme tablolarını içeren tam ağ durumu anlık görüntülerini daha sonra geri yüklemek için yakalayın."
+      }
+    },
+    "advanced": {
+      "importExport": {
+        "title": "İçe/Dışa Aktarma",
+        "description": "Paylaşım ve sürüm kontrolü için topolojileri JSON olarak dışa aktarın. Anında dağıtım için önceden oluşturulmuş topolojileri içe aktarın."
+      },
+      "generator": {
+        "title": "Topoloji Üreteci",
+        "description": "Önceden tanımlanmış desenler (Doğrusal, Yıldız, Ağaç, Örgü) ve özel parametrelerle yapay zeka destekli topoloji üretimi."
+      },
+      "deviceManager": {
+        "title": "Cihaz Yöneticisi",
+        "description": "Çalışma zamanı cihaz işlemleri - ağı durdurmadan canlı emülasyonlarda cihaz ekleme, kaldırma veya değiştirme."
+      },
+      "orchestrator": {
+        "title": "Orkestratör",
+        "description": "Emülasyon yaşam döngüsünü, kaynak tahsisini ve servis koordinasyonunu yöneten merkezi orkestrasyon servisi."
+      },
+      "multiDb": {
+        "title": "Çoklu Veritabanı Desteği",
+        "description": "İlişkisel veriler için PostgreSQL, anlık görüntüler için MongoDB, metrikler için InfluxDB ve önbellek için Redis."
+      },
+      "serviceDiscovery": {
+        "title": "Servis Keşfi",
+        "description": "Otomatik servis keşfi ve sağlık izleme için Consul tabanlı servis kaydı."
+      }
+    },
+    "specs": {
+      "devices": {
+        "category": "Desteklenen Cihazlar",
+        "items": ["Hostlar", "OVS Anahtarlar", "Linux Köprüler", "Yönlendiriciler (FRR)", "Erişim Noktaları", "WiFi İstasyonları", "Docker Konteynerler", "P4 Anahtarlar"]
+      },
+      "networkFeatures": {
+        "category": "Ağ Özellikleri",
+        "items": ["Bant Genişliği Kontrolü", "Gecikme Simülasyonu", "Paket Kaybı", "Titreşim", "Bağlantı Kalitesi Kontrolü", "QoS Yapılandırması"]
+      },
+      "controllers": {
+        "category": "SDN Kontrolörleri",
+        "items": ["OS-Ken (Ryu çatalı)", "Ryu", "OpenDaylight", "ONOS", "POX", "Floodlight", "Özel Kontrolörler"]
+      },
+      "protocols": {
+        "category": "Yönlendirme Protokolleri",
+        "items": ["OSPF v2/v3", "BGP", "RIP v1/v2", "IS-IS", "EIGRP", "Statik Rotalar"]
+      }
+    },
+    "architecture": {
+      "microservices": {
+        "title": "Mikroservis Mimarisi",
+        "description": "Ölçeklenebilirlik ve dayanıklılık için 12'den fazla bağımsız servis"
+      },
+      "eventDriven": {
+        "title": "Olay Güdümlü",
+        "description": "Gerçek zamanlı olay yayılımı için RabbitMQ mesaj aracısı"
+      },
+      "containerNative": {
+        "title": "Konteyner Tabanlı",
+        "description": "Docker Compose orkestrasyonu ile tamamen konteynerleştirilmiş"
+      }
+    },
+    "tags": {
+      "visualEditor": "Görsel Editör",
+      "realtime": "Gerçek Zamanlı",
+      "multiDevice": "Çoklu Cihaz",
+      "openflow": "OpenFlow",
+      "multiController": "Çoklu Kontrolör",
+      "restApi": "REST API",
+      "p4runtime": "P4Runtime",
+      "grpc": "gRPC",
+      "programmable": "Programlanabilir",
+      "prometheus": "Prometheus",
+      "grafana": "Grafana",
+      "liveMetrics": "Canlı Metrikler",
+      "frr": "FRR",
+      "dynamicRouting": "Dinamik Yönlendirme",
+      "multiProtocol": "Çoklu Protokol",
+      "terminal": "Terminal",
+      "ssh": "SSH",
+      "docker": "Docker",
+      "containerized": "Konteynerleştirilmiş",
+      "microservices": "Mikroservisler",
+      "stateManagement": "Durum Yönetimi",
+      "backup": "Yedekleme",
+      "restore": "Geri Yükleme"
+    },
+    "cta": {
+      "title": "Başlamaya Hazır Mısınız?",
+      "subtitle": "İlk ağ topolojinizi oluşturun ve NEXUS - Network EXperimentation Unified System'un gücünü deneyimleyin",
+      "documentation": "Belgeleri Görüntüle"
+    }
+  },
+  "apiDocs": {
+    "title": "NEXUS - Network EXperimentation Unified System Servis Dokümantasyonu",
+    "subtitle": "API Dokümantasyonu",
+    "totalServices": "Toplam Servisler",
+    "running": "Çalışıyor",
+    "stopped": "Durduruldu",
+    "unknown": "Bilinmiyor",
+    "searchPlaceholder": "Servislerde ara... (örn. topology, snapshot, monitoring)",
+    "documentation": "Dokümantasyon",
+    "swaggerUI": "Swagger UI",
+    "redoc": "ReDoc",
+    "openapiJson": "OpenAPI JSON",
+    "noServicesFound": "Servis bulunamadı",
+    "noServicesMatch": "Eşleşen servis yok",
+    "noServicesAvailable": "Şu anda kullanılabilir servis yok",
+    "aboutTitle": "API Dokümantasyonu Hakkında",
+    "aboutDescription": "Bu sayfa, tüm NEXUS - Network EXperimentation Unified System mikroservisleri için OpenAPI dokümantasyonuna erişim sağlar. Her servis, API şemasını Swagger UI, ReDoc ve ham OpenAPI JSON aracılığıyla sunar.",
+    "tip": "İpucu:",
+    "tipDescription": "ReDoc engellenen CDN'ler nedeniyle boş görünüyorsa, ham spesifikasyonları görüntülemek için OpenAPI JSON uç noktalarını kullanın."
+  }
+}

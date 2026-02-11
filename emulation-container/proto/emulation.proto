@@ -1,0 +1,513 @@
+syntax = "proto3";
+
+package emulation;
+
+// Emulation Control Service
+service EmulationService {
+    // Lifecycle Management
+    rpc StartEmulation(StartEmulationRequest) returns (EmulationResponse);
+    rpc StopEmulation(StopEmulationRequest) returns (EmulationResponse);
+    rpc PauseEmulation(PauseEmulationRequest) returns (EmulationResponse);
+    rpc ResumeEmulation(ResumeEmulationRequest) returns (EmulationResponse);
+    rpc GetEmulationStatus(EmulationStatusRequest) returns (EmulationStatusResponse);
+
+    // Device Management
+    rpc AddHost(AddHostRequest) returns (DeviceResponse);
+    rpc AddSwitch(AddSwitchRequest) returns (DeviceResponse);
+    rpc AddRouter(AddRouterRequest) returns (DeviceResponse);
+    rpc AddAccessPoint(AddAccessPointRequest) returns (DeviceResponse);
+    rpc AddStation(AddStationRequest) returns (DeviceResponse);
+    rpc AddDockerContainer(AddDockerContainerRequest) returns (DeviceResponse);
+    rpc AddP4Switch(AddP4SwitchRequest) returns (DeviceResponse);
+    rpc RemoveDevice(RemoveDeviceRequest) returns (DeviceResponse);
+    rpc UpdateDevice(UpdateDeviceRequest) returns (DeviceResponse);
+    rpc GetDevice(GetDeviceRequest) returns (DeviceResponse);
+    rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
+
+    // Link Management
+    rpc AddLink(AddLinkRequest) returns (LinkResponse);
+    rpc RemoveLink(RemoveLinkRequest) returns (LinkResponse);
+    rpc UpdateLink(UpdateLinkRequest) returns (LinkResponse);
+    rpc GetLink(GetLinkRequest) returns (LinkResponse);
+    rpc ListLinks(ListLinksRequest) returns (ListLinksResponse);
+
+    // Command Execution
+    rpc ExecuteCommand(ExecuteCommandRequest) returns (ExecuteCommandResponse);
+    rpc ExecuteCommandStream(ExecuteCommandRequest) returns (stream ExecuteCommandResponse);
+
+    // Protocol Management
+    rpc ConfigureProtocol(ConfigureProtocolRequest) returns (ProtocolResponse);
+    rpc EnableProtocol(EnableProtocolRequest) returns (ProtocolResponse);
+    rpc DisableProtocol(DisableProtocolRequest) returns (ProtocolResponse);
+    rpc SwitchProtocol(SwitchProtocolRequest) returns (ProtocolResponse);
+    rpc GetProtocolStatus(ProtocolStatusRequest) returns (ProtocolStatusResponse);
+
+    // State Management
+    rpc CaptureState(CaptureStateRequest) returns (CaptureStateResponse);
+    rpc RestoreState(RestoreStateRequest) returns (RestoreStateResponse);
+    rpc GetRoutingTable(GetRoutingTableRequest) returns (GetRoutingTableResponse);
+    rpc GetFlowTable(GetFlowTableRequest) returns (GetFlowTableResponse);
+    rpc GetARPTable(GetARPTableRequest) returns (GetARPTableResponse);
+
+    // Monitoring
+    rpc GetMetrics(GetMetricsRequest) returns (GetMetricsResponse);
+    rpc StreamMetrics(StreamMetricsRequest) returns (stream MetricsUpdate);
+    rpc GetInterfaceStats(GetInterfaceStatsRequest) returns (GetInterfaceStatsResponse);
+
+    // Controller Management
+    rpc SetController(SetControllerRequest) returns (ControllerResponse);
+    rpc RemoveController(RemoveControllerRequest) returns (ControllerResponse);
+
+    // Mininet CLI
+    rpc MininetCLI(stream CLIRequest) returns (stream CLIResponse);
+}
+
+// Common Messages
+message EmulationResponse {
+    bool success = 1;
+    string message = 2;
+    string emulation_id = 3;
+}
+
+message DeviceResponse {
+    bool success = 1;
+    string message = 2;
+    Device device = 3;
+}
+
+message LinkResponse {
+    bool success = 1;
+    string message = 2;
+    Link link = 3;
+}
+
+message ProtocolResponse {
+    bool success = 1;
+    string message = 2;
+    ProtocolStatus status = 3;
+}
+
+message ControllerResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+// Lifecycle Messages
+message StartEmulationRequest {
+    string topology_id = 1;
+    TopologyDefinition topology = 2;
+    map<string, string> options = 3;
+}
+
+message StopEmulationRequest {
+    string emulation_id = 1;
+    bool cleanup = 2;
+}
+
+message PauseEmulationRequest {
+    string emulation_id = 1;
+}
+
+message ResumeEmulationRequest {
+    string emulation_id = 1;
+}
+
+message EmulationStatusRequest {
+    string emulation_id = 1;
+}
+
+message EmulationStatusResponse {
+    string status = 1;  // running, stopped, paused
+    int64 uptime_seconds = 2;
+    int32 device_count = 3;
+    int32 link_count = 4;
+    map<string, string> metadata = 5;
+}
+
+// Device Messages
+message AddHostRequest {
+    string name = 1;
+    string ip = 2;
+    string ip6 = 3;
+    string mac = 4;
+    string default_route = 5;
+    map<string, string> params = 6;
+}
+
+message AddSwitchRequest {
+    string name = 1;
+    string switch_type = 2;  // ovs, linuxbridge, p4
+    string openflow_version = 3;  // 1.0, 1.3, 1.4, 1.5
+    string controller = 4;
+    int32 datapath_id = 5;
+    map<string, string> params = 6;
+}
+
+message AddRouterRequest {
+    string name = 1;
+    repeated string protocols = 2;  // ospf, bgp, rip, isis, eigrp, static
+    string router_daemon = 3;  // frr, bird, quagga
+    map<string, string> protocol_configs = 4;
+    map<string, string> params = 5;
+}
+
+message AddAccessPointRequest {
+    string name = 1;
+    string ssid = 2;
+    string mode = 3;  // a, b, g, n, ac, ax
+    string channel = 4;
+    string security = 5;  // open, wpa, wpa2, wpa3
+    string password = 6;
+    map<string, string> params = 7;
+}
+
+message AddStationRequest {
+    string name = 1;
+    string ssid = 2;
+    string mode = 3;
+    string security = 4;
+    string password = 5;
+    MobilityConfig mobility = 6;
+    map<string, string> params = 7;
+}
+
+message AddDockerContainerRequest {
+    string name = 1;
+    string image = 2;
+    repeated string command = 3;
+    map<string, string> environment = 4;
+    repeated string volumes = 5;
+    map<string, string> params = 6;
+}
+
+message AddP4SwitchRequest {
+    string name = 1;
+    string p4_source = 2;
+    string p4info_path = 3;
+    string device_config_path = 4;
+    int32 grpc_port = 5;
+    map<string, string> params = 6;
+}
+
+message RemoveDeviceRequest {
+    string name = 1;
+}
+
+message UpdateDeviceRequest {
+    string name = 1;
+    map<string, string> updates = 2;
+}
+
+message GetDeviceRequest {
+    string name = 1;
+}
+
+message ListDevicesRequest {
+    string device_type = 1;  // empty for all
+}
+
+message ListDevicesResponse {
+    repeated Device devices = 1;
+}
+
+// Link Messages
+message AddLinkRequest {
+    string node1 = 1;
+    string node2 = 2;
+    string port1 = 3;
+    string port2 = 4;
+    LinkParams params = 5;
+}
+
+message RemoveLinkRequest {
+    string node1 = 1;
+    string node2 = 2;
+}
+
+message UpdateLinkRequest {
+    string node1 = 1;
+    string node2 = 2;
+    LinkParams params = 3;
+}
+
+message GetLinkRequest {
+    string node1 = 1;
+    string node2 = 2;
+}
+
+message ListLinksRequest {
+    string node = 1;  // empty for all links
+}
+
+message ListLinksResponse {
+    repeated Link links = 1;
+}
+
+// Command Execution Messages
+message ExecuteCommandRequest {
+    string device = 1;
+    string command = 2;
+    bool stream_output = 3;
+}
+
+message ExecuteCommandResponse {
+    bool success = 1;
+    string stdout = 2;
+    string stderr = 3;
+    int32 exit_code = 4;
+}
+
+// Protocol Messages
+message ConfigureProtocolRequest {
+    string device = 1;
+    string protocol = 2;
+    map<string, string> config = 3;
+}
+
+message EnableProtocolRequest {
+    string device = 1;
+    string protocol = 2;
+}
+
+message DisableProtocolRequest {
+    string device = 1;
+    string protocol = 2;
+}
+
+message SwitchProtocolRequest {
+    string device = 1;
+    string from_protocol = 2;
+    string to_protocol = 3;
+    bool preserve_config = 4;
+}
+
+message ProtocolStatusRequest {
+    string device = 1;
+    string protocol = 2;
+}
+
+message ProtocolStatusResponse {
+    string protocol = 1;
+    string status = 2;
+    map<string, string> details = 3;
+}
+
+// State Messages
+message CaptureStateRequest {
+    string snapshot_name = 1;
+    repeated string devices = 2;  // empty for all
+    bool include_routing_tables = 3;
+    bool include_flow_tables = 4;
+    bool include_arp_tables = 5;
+}
+
+message CaptureStateResponse {
+    bool success = 1;
+    string message = 2;
+    bytes state_data = 3;
+}
+
+message RestoreStateRequest {
+    string snapshot_name = 1;
+    bytes state_data = 2;
+}
+
+message RestoreStateResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message GetRoutingTableRequest {
+    string device = 1;
+}
+
+message GetRoutingTableResponse {
+    repeated RouteEntry routes = 1;
+}
+
+message GetFlowTableRequest {
+    string switch = 1;
+}
+
+message GetFlowTableResponse {
+    repeated FlowEntry flows = 1;
+}
+
+message GetARPTableRequest {
+    string device = 1;
+}
+
+message GetARPTableResponse {
+    repeated ARPEntry entries = 1;
+}
+
+// Monitoring Messages
+message GetMetricsRequest {
+    repeated string devices = 1;
+    repeated string metrics = 2;
+}
+
+message GetMetricsResponse {
+    map<string, DeviceMetrics> device_metrics = 1;
+}
+
+message StreamMetricsRequest {
+    repeated string devices = 1;
+    int32 interval_seconds = 2;
+}
+
+message MetricsUpdate {
+    int64 timestamp = 1;
+    map<string, DeviceMetrics> device_metrics = 2;
+}
+
+message GetInterfaceStatsRequest {
+    string device = 1;
+    string interface = 2;
+}
+
+message GetInterfaceStatsResponse {
+    repeated InterfaceStats stats = 1;
+}
+
+// Controller Messages
+message SetControllerRequest {
+    string switch = 1;
+    string controller_ip = 2;
+    int32 controller_port = 3;
+    string protocol = 4;
+}
+
+message RemoveControllerRequest {
+    string switch = 1;
+}
+
+// Data Structures
+message TopologyDefinition {
+    repeated Device devices = 1;
+    repeated Link links = 2;
+    repeated Controller controllers = 3;
+    map<string, string> options = 4;
+}
+
+message Device {
+    string name = 1;
+    string type = 2;
+    map<string, string> properties = 3;
+    repeated Interface interfaces = 4;
+    string status = 5;
+}
+
+message Interface {
+    string name = 1;
+    string mac = 2;
+    string ip = 3;
+    string ip6 = 4;
+    int32 mtu = 5;
+    string status = 6;
+}
+
+message Link {
+    string node1 = 1;
+    string node2 = 2;
+    string port1 = 3;
+    string port2 = 4;
+    LinkParams params = 5;
+    string status = 6;
+}
+
+message LinkParams {
+    double bandwidth = 1;  // Mbps
+    double delay = 2;       // ms
+    double loss = 3;        // percentage
+    int32 max_queue_size = 4;
+    bool use_htb = 5;
+}
+
+message Controller {
+    string name = 1;
+    string ip = 2;
+    int32 port = 3;
+    string type = 4;
+}
+
+message MobilityConfig {
+    string model = 1;  // RandomWalk, RandomDirection, etc.
+    map<string, string> params = 2;
+}
+
+message ProtocolStatus {
+    string protocol = 1;
+    string status = 2;
+    string version = 3;
+    map<string, string> config = 4;
+}
+
+message RouteEntry {
+    string destination = 1;
+    string gateway = 2;
+    string interface = 3;
+    int32 metric = 4;
+    string protocol = 5;
+}
+
+message FlowEntry {
+    int32 priority = 1;
+    string match = 2;
+    string actions = 3;
+    int64 packet_count = 4;
+    int64 byte_count = 5;
+    int32 duration = 6;
+}
+
+message ARPEntry {
+    string ip = 1;
+    string mac = 2;
+    string interface = 3;
+    string state = 4;
+}
+
+message DeviceMetrics {
+    int64 bytes_sent = 1;
+    int64 bytes_received = 2;
+    int64 packets_sent = 3;
+    int64 packets_received = 4;
+    int64 errors_in = 5;
+    int64 errors_out = 6;
+    int64 drops_in = 7;
+    int64 drops_out = 8;
+    double cpu_percent = 9;
+    double memory_percent = 10;
+}
+
+message InterfaceStats {
+    string interface = 1;
+    int64 rx_bytes = 2;
+    int64 tx_bytes = 3;
+    int64 rx_packets = 4;
+    int64 tx_packets = 5;
+    int64 rx_errors = 6;
+    int64 tx_errors = 7;
+    int64 rx_dropped = 8;
+    int64 tx_dropped = 9;
+}
+
+message CLIRequest {
+  string emulation_id = 1;
+  oneof command {
+    string input = 2;
+    Resize resize = 3;
+  }
+}
+
+message Resize {
+    int32 rows = 1;
+    int32 cols = 2;
+}
+
+message CLIResponse {
+  oneof message {
+    string output = 1;
+    string error = 2;
+  }
+}

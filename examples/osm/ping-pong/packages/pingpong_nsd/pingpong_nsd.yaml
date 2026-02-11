@@ -1,0 +1,34 @@
+nsd:
+  id: caduceus-pingpong-ns
+  name: caduceus-pingpong-ns
+  designer: caduceus
+  version: "1.0"
+  description: "Ping/Pong demo NS (2 VNFs on a single VL)"
+
+  vnfd-id:
+    - caduceus-ping-vnf
+    - caduceus-pong-vnf
+
+  # Virtual links become Neutron networks via vimemu-service.
+  virtual-link-desc:
+    - id: mgmt
+      mgmt-network: "true"
+
+  df:
+    - id: default-df
+      vnf-profile:
+        - id: ping-vnf
+          vnfd-id: caduceus-ping-vnf
+          virtual-link-connectivity:
+            - virtual-link-profile-id: mgmt
+              constituent-cpd-id:
+                - constituent-base-element-id: ping-vnf
+                  constituent-cpd-id: ping-cp0
+        - id: pong-vnf
+          vnfd-id: caduceus-pong-vnf
+          virtual-link-connectivity:
+            - virtual-link-profile-id: mgmt
+              constituent-cpd-id:
+                - constituent-base-element-id: pong-vnf
+                  constituent-cpd-id: pong-cp0
+

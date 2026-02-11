@@ -1,117 +1,1868 @@
-version: '3.8'
-
+version: "3.8"
 services:
-  # MongoDB Database
-  mongodb:
-    image: mongo:7.0
-    container_name: mininet-mongodb
-    restart: unless-stopped
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: caduceus-postgres
     environment:
-      MONGO_INITDB_DATABASE: mininet_web_framework
+      POSTGRES_DB: ${POSTGRES_DB:-caduceus_flux}
+      POSTGRES_USER: ${POSTGRES_USER:-caduceus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_postgres_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     ports:
-      - "27017:27017"
+      - ${POSTGRES_PORT:-5432}:5432
+    networks:
+      - caduceus-network
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-caduceus} -d ${POSTGRES_DB:-caduceus_flux}
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  mongodb:
+    image: mongo:7
+    container_name: caduceus-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-caduceus}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-changeme_mongo_password}
+      MONGO_INITDB_DATABASE: ${MONGO_DB:-caduceus_flux}
     volumes:
       - mongodb_data:/data/db
-      - mongodb_config:/data/configdb
-    networks:
-      - mininet-network
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-
-  # Backend Service with All SDN Controllers
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.controllers
-    container_name: mininet-backend-controllers
-    restart: unless-stopped
     ports:
-      - "5000:5000"    # Flask API
-      - "6633:6633"    # OpenFlow (Ryu, POX, os-ken)
-      - "8181:8181"    # OpenDaylight REST API
-      - "8101:8101"    # OpenDaylight SSH (Karaf)
-    env_file:
-      - docker.env
-    environment:
-      - MONGODB_URI=mongodb://mongodb:27017/
-      - DATABASE_NAME=mininet_web_framework
-      - FLASK_ENV=production
-      - PYTHONPATH=/app
-      - JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-      - POX_HOME=/opt/pox
-      - ODL_HOME=/opt/opendaylight
+      - ${MONGO_PORT:-27018}:27017
+    networks:
+      - caduceus-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  shared-secrets-init:
+    image: alpine:3.19
+    container_name: caduceus-shared-secrets-init
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /sys/fs/cgroup:/sys/fs/cgroup:ro
-      - /lib/modules:/lib/modules:ro
-      # Controller data persistence
-      - pox_data:/opt/pox
-      - odl_data:/opt/opendaylight/data
-      - odl_logs:/opt/opendaylight/data/log
+      - shared_secrets:/run/secrets/caduceus
+      - ./infrastructure/secrets/init_shared_secrets.sh:/usr/local/bin/init_shared_secrets.sh:ro
+    command:
+      - sh
+      - -lc
+      - "sh /usr/local/bin/init_shared_secrets.sh"
+    restart: "no"
+
+  pgadmin:
+    image: dpage/pgadmin4:8.11
+    container_name: caduceus-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/caduceus/pgadmin_password
+      # Required for reverse-proxy mounting under /infra-proxy/pgadmin-shared/
+      SCRIPT_NAME: /infra-proxy/pgadmin-shared
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - shared_secrets:/run/secrets/caduceus:ro
+    ports:
+      - ${PGADMIN_PORT:-5050}:80
+    networks:
+      - caduceus-network
     depends_on:
+      shared-secrets-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mongo-express:
+    image: mongo-express:1.0.2
+    container_name: caduceus-mongo-express
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_MONGODB_PORT: 27017
+      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_USER:-caduceus}
+      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_PASSWORD:-changeme_mongo_password}
+      ME_CONFIG_BASICAUTH: "true"
+      ME_CONFIG_BASICAUTH_USERNAME_FILE: /run/secrets/caduceus/mongo_express_user
+      ME_CONFIG_BASICAUTH_PASSWORD_FILE: /run/secrets/caduceus/mongo_express_password
+      # Required for reverse-proxy mounting under /infra-proxy/mongo-express-shared/
+      ME_CONFIG_SITE_BASEURL: /infra-proxy/mongo-express-shared/
+    volumes:
+      - shared_secrets:/run/secrets/caduceus:ro
+    ports:
+      - ${MONGO_EXPRESS_PORT:-8096}:8081
+    networks:
+      - caduceus-network
+    depends_on:
+      shared-secrets-init:
+        condition: service_completed_successfully
       mongodb:
         condition: service_healthy
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    container_name: caduceus-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-changeme_redis_password}
+    volumes:
+      - redis_data:/data
+    ports:
+      - ${REDIS_PORT:-6379}:6379
     networks:
-      - mininet-network
-    privileged: true
-    cap_add:
-      - NET_ADMIN
-      - SYS_ADMIN
-      - SYS_NICE
-      - SYS_MODULE
-    devices:
-      - /dev/net/tun
-    sysctls:
-      - net.ipv4.ip_forward=1
+      - caduceus-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/api/status"]
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: caduceus-influxdb
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_TOKEN:-changeme_influxdb_token}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG:-caduceus-flux}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET:-metrics}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:-changeme_influxdb_token}
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    ports:
+      - ${INFLUXDB_PORT:-8086}:8086
+    networks:
+      - caduceus-network
+    healthcheck:
+      test:
+        - CMD
+        - influx
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: caduceus-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-caduceus}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-changeme_rabbitmq_password}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/caduceus-flux}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - ${RABBITMQ_PORT:-5672}:5672
+      - ${RABBITMQ_MANAGEMENT_PORT:-15672}:15672
+    networks:
+      - caduceus-network
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 15s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+  consul:
+    image: hashicorp/consul:latest
+    container_name: caduceus-consul
+    # Dev-mode Consul is the most stable option for single-node Docker Compose.
+    # Persisting raft data can leave Consul without a leader after container recreation,
+    # which causes KV reads/writes to hang and breaks the gateway/microservices.
+    command: agent -dev -ui -client=0.0.0.0
+    ports:
+      - ${CONSUL_PORT:-8500}:8500
+    networks:
+      - caduceus-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8500/v1/status/leader | grep -q ':8300'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: caduceus-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-30d}
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - ${PROMETHEUS_PORT:-9090}:9090
+    networks:
+      - caduceus-network
+    depends_on:
+      - consul
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: caduceus-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-changeme_grafana_password}
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
+      INFLUXDB_URL: ${INFLUXDB_URL:-http://influxdb:8086}
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-changeme_influxdb_token}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-caduceus-flux}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-metrics}
+      POSTGRES_DB: ${POSTGRES_DB:-caduceus_flux}
+      POSTGRES_USER: ${POSTGRES_USER:-caduceus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_postgres_password}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infrastructure/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./infrastructure/grafana/datasources:/etc/grafana/provisioning/datasources
+    ports:
+      - ${GRAFANA_PORT:-3001}:3000
+    networks:
+      - caduceus-network
+    depends_on:
+      - prometheus
+      - influxdb
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: caduceus-nginx
+    volumes:
+      - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./infrastructure/nginx/proxy_params.conf:/etc/nginx/proxy_params.conf
+      - ./infrastructure/nginx/conf.d:/etc/nginx/conf.d
+    ports:
+      - ${NGINX_PORT:-80}:80
+      - ${NGINX_SSL_PORT:-443}:443
+    networks:
+      - caduceus-network
+    depends_on:
+      - mcp-server
+      - frontend
+      - topology-service
+      - orchestrator-service
+      - protocol-manager-service
+      - device-manager-service
+      - controller-manager-service
+      - snapshot-service
+      - ai-gateway-service
+      - mano-service
+      - osm-connector-service
+      - config-service
+      - webshell-service
+      - export-import-service
+      - topology-generator-service
+      - p4-manager-service
+      - monitoring-service
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --quiet
+        - --tries=1
+        - --spider
+        - http://127.0.0.1/health
+      interval: 10s
+      timeout: 5s
+      retries: 3
+  topology-service:
+    build:
+      context: ./backend
+      dockerfile: services/topology/Dockerfile
+    container_name: caduceus-topology-service
+    environment:
+      - SERVICE_NAME=topology-service
+      - SERVICE_PORT=8001
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_USER=${POSTGRES_USER:-caduceus}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme_postgres_password}
+      - POSTGRES_DB=${POSTGRES_DB:-caduceus_flux}
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_USER=${RABBITMQ_USER:-caduceus}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-changeme_rabbitmq_password}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/caduceus-flux}
+      - CONSUL_HOST=${CONSUL_HOST:-consul}
+      - ORCHESTRATOR_SERVICE_URL=${ORCHESTRATOR_SERVICE_URL:-http://orchestrator-service:8002}
+    ports:
+      - 8001:8001
+    networks:
+      - caduceus-network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 120s  # Longer startup time for controllers
+      retries: 10
+      start_period: 120s
+  orchestrator-service:
+    build:
+      context: ./backend
+      dockerfile: services/orchestrator/Dockerfile
+    container_name: caduceus-orchestrator-service
+    environment:
+      - SERVICE_NAME=orchestrator-service
+      - SERVICE_PORT=8002
+      - AUTO_APPLY_NETWORK_CONFIG=${AUTO_APPLY_NETWORK_CONFIG:-true}
+      - STOP_EMULATIONS_ON_SHUTDOWN=${STOP_EMULATIONS_ON_SHUTDOWN:-false}
+      - EMULATION_GRPC_HOST=${EMULATION_GRPC_HOST:-localhost}
+      - EMULATION_GRPC_PORT=${EMULATION_GRPC_PORT:-50051}
+      - P4_PROGRAMS_VOLUME=${P4_PROGRAMS_VOLUME:-caduceus-p4-programs}
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_USER=${RABBITMQ_USER:-caduceus}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-changeme_rabbitmq_password}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/caduceus-flux}
+      - CONSUL_HOST=${CONSUL_HOST:-consul}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme_redis_password}
+      - TOPOLOGY_INFRA_MODE=${TOPOLOGY_INFRA_MODE:-shared}
+      - MONITORING_URL=${MONITORING_URL:-http://monitoring-service:8011}
+      - GRAFANA_INTERNAL_URL=${GRAFANA_INTERNAL_URL:-http://grafana:3000}
+      - GRAFANA_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-changeme_grafana_password}
+      - INFLUXDB_URL=${INFLUXDB_URL:-http://influxdb:8086}
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:-changeme_influxdb_token}
+      - INFLUXDB_ORG=${INFLUXDB_ORG:-caduceus-flux}
+      - CADUCEUS_SHARED_SECRETS_DIR=/run/secrets/caduceus
+      - PCAP_STORAGE_ROOT=/var/lib/caduceus/pcap
+      - PCAP_VOLUME_NAME=${PCAP_VOLUME_NAME:-caduceus-pcap-data}
+    ports:
+      - 8002:8002
+    networks:
+      - caduceus-network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - p4_programs:/var/lib/caduceus/p4
+      - pcap_data:/var/lib/caduceus/pcap
+      - shared_secrets:/run/secrets/caduceus:ro
+    depends_on:
+      shared-secrets-init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+  protocol-manager-service:
+    build:
+      context: ./backend
+      dockerfile: services/protocol_manager/Dockerfile
+    container_name: caduceus-protocol-manager-service
+    environment:
+      - SERVICE_NAME=protocol-manager-service
+      - SERVICE_PORT=8003
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_USER=${RABBITMQ_USER:-caduceus}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-changeme_rabbitmq_password}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/caduceus-flux}
+      - CONSUL_HOST=${CONSUL_HOST:-consul}
+    ports:
+      - 8003:8003
+    networks:
+      - caduceus-network
+    depends_on:
+      - rabbitmq
+      - consul
+    restart: unless-stopped
+  device-manager-service:
+    build:
+      context: ./backend
+      dockerfile: services/device_manager/Dockerfile
+    container_name: caduceus-device-manager-service
+    environment:
+      - SERVICE_NAME=device-manager-service
+      - SERVICE_PORT=8004
+      - ORCHESTRATOR_URL=${ORCHESTRATOR_URL:-http://orchestrator-service:8002}
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_USER=${RABBITMQ_USER:-caduceus}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-changeme_rabbitmq_password}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/caduceus-flux}
+      - CONSUL_HOST=${CONSUL_HOST:-consul}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-caduceus_flux}
+      - POSTGRES_USER=${POSTGRES_USER:-caduceus}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme_postgres_password}
+    ports:
+      - 8004:8004
+    networks:
+      - caduceus-network
+    depends_on:
+      - rabbitmq
+      - consul
+      - postgres
+    restart: unless-stopped
+  controller-manager-service:
+    build:
+      context: ./backend
+      dockerfile: services/controller_manager/Dockerfile
+    container_name: caduceus-controller-manager-service
+    environment:
+      - SERVICE_NAME=controller-manager-service
+      - SERVICE_PORT=8005
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_USER=${RABBITMQ_USER:-caduceus}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-changeme_rabbitmq_password}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/caduceus-flux}
+      - CONSUL_HOST=${CONSUL_HOST:-consul}
+    ports:
+      - 8005:8005
+    networks:
+      - caduceus-network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - rabbitmq
+      - consul
+    restart: unless-stopped
+  snapshot-service:
+    build:
+      context: ./backend
+      dockerfile: services/snapshot/Dockerfile
+    container_name: caduceus-snapshot-service
+    environment:
+      - SERVICE_NAME=snapshot-service
+      - SERVICE_PORT=8006
+      - TOPOLOGY_SERVICE_URL=http://topology-service:8001
+      - ORCHESTRATOR_URL=http://orchestrator-service:8002
+      - SNAPSHOT_STORAGE_DIR=/var/lib/caduceus-flux/snapshots
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_USER=${POSTGRES_USER:-caduceus}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme_postgres_password}
+      - POSTGRES_DB=${POSTGRES_DB:-caduceus_flux}
+      - MONGODB_HOST=${MONGODB_HOST:-mongodb}
+      - MONGODB_PORT=${MONGODB_PORT:-27017}
+      - MONGODB_USER=${MONGODB_USER:-caduceus}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-changeme_mongo_password}
+      - MONGODB_DB=${MONGODB_DB:-caduceus_snapshots}
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_USER=${RABBITMQ_USER:-caduceus}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-changeme_rabbitmq_password}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/caduceus-flux}
+      - CONSUL_HOST=${CONSUL_HOST:-consul}
+    volumes:
+      - emulation_snapshots:/var/lib/caduceus-flux/snapshots
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - 8006:8006
+    networks:
+      - caduceus-network
+    depends_on:
+      - mongodb
+      - rabbitmq
+      - consul
+    restart: unless-stopped
+  webshell-service:
+    build:
+      context: ./backend
+      dockerfile: services/webshell/Dockerfile
+    container_name: caduceus-webshell-service
+    environment:
+      - SERVICE_NAME=webshell-service
+      - SERVICE_PORT=8007
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - CONSUL_HOST=${CONSUL_HOST:-consul}
+      - EMULATION_GRPC_HOST=${EMULATION_GRPC_HOST:-localhost}
+      - EMULATION_GRPC_PORT=${EMULATION_GRPC_PORT:-50051}
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_USER=${RABBITMQ_USER:-caduceus}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-changeme_rabbitmq_password}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/caduceus-flux}
+    ports:
+      - 8007:8007
+    networks:
+      - caduceus-network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - redis
+      - consul
+    restart: unless-stopped
+  export-import-service:
+    build:
+      context: ./backend
+      dockerfile: services/export_import/Dockerfile
+    container_name: caduceus-export-import-service
+    environment:
+      - SERVICE_NAME=export-import-service
+      - SERVICE_PORT=8008
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_USER=${RABBITMQ_USER:-caduceus}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-changeme_rabbitmq_password}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/caduceus-flux}
+      - CONSUL_HOST=${CONSUL_HOST:-consul}
+    ports:
+      - 8008:8008
+    networks:
+      - caduceus-network
+    depends_on:
+      - rabbitmq
+      - consul
+    restart: unless-stopped
+  topology-generator-service:
+    build:
+      context: ./backend
+      dockerfile: services/topology_generator/Dockerfile
+    container_name: caduceus-topology-generator-service
+    environment:
+      - SERVICE_NAME=topology-generator-service
+      - SERVICE_PORT=8009
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_USER=${RABBITMQ_USER:-caduceus}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-changeme_rabbitmq_password}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/caduceus-flux}
+      - CONSUL_HOST=${CONSUL_HOST:-consul}
+    ports:
+      - 8009:8009
+    networks:
+      - caduceus-network
+    depends_on:
+      - rabbitmq
+      - consul
+    restart: unless-stopped
+  p4-manager-service:
+    build:
+      context: ./backend
+      dockerfile: services/p4_manager/Dockerfile
+    container_name: caduceus-p4-manager-service
+    environment:
+      - SERVICE_NAME=p4-manager-service
+      - SERVICE_PORT=8010
+      - P4_STORAGE_ROOT=${P4_STORAGE_ROOT:-/var/lib/caduceus/p4}
+      - P4_PROGRAMS_VOLUME=${P4_PROGRAMS_VOLUME:-caduceus-p4-programs}
+      - P4C_DOCKER_IMAGE=${P4C_DOCKER_IMAGE:-p4lang/p4c:stable}
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_USER=${RABBITMQ_USER:-caduceus}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-changeme_rabbitmq_password}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/caduceus-flux}
+      - CONSUL_HOST=${CONSUL_HOST:-consul}
+    ports:
+      - 8010:8010
+    networks:
+      - caduceus-network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - p4_programs:/var/lib/caduceus/p4
+    depends_on:
+      - rabbitmq
+      - consul
+    restart: unless-stopped
+  monitoring-service:
+    build:
+      context: ./backend
+      dockerfile: services/monitoring/Dockerfile
+    container_name: caduceus-monitoring-service
+    environment:
+      - SERVICE_NAME=monitoring-service
+      - SERVICE_PORT=8011
+      - INFLUXDB_HOST=${INFLUXDB_HOST:-influxdb}
+      - INFLUXDB_URL=${INFLUXDB_URL:-http://influxdb:8086}
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:-changeme_influxdb_token}
+      - INFLUXDB_ORG=${INFLUXDB_ORG:-caduceus-flux}
+      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET:-metrics}
+      - INFLUXDB_TOPOLOGY_BUCKETS_ENABLED=${INFLUXDB_TOPOLOGY_BUCKETS_ENABLED:-false}
+      - INFLUXDB_TOPOLOGY_BUCKET_PREFIX=${INFLUXDB_TOPOLOGY_BUCKET_PREFIX:-topology_}
+      - INFLUXDB_TOPOLOGY_INSTANCES_ENABLED=${INFLUXDB_TOPOLOGY_INSTANCES_ENABLED:-false}
+      - INFLUXDB_TOPOLOGY_URL_TEMPLATE=${INFLUXDB_TOPOLOGY_URL_TEMPLATE:-http://caduceus-topo-{short_id}-influxdb:8086}
+      - PROMETHEUS_HOST=${PROMETHEUS_HOST:-prometheus}
+      - KAFKA_ENABLED=${KAFKA_ENABLED:-true}
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      - KAFKA_METRICS_TOPICS=${KAFKA_METRICS_TOPICS:-metrics.raw,metrics.processed}
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_USER=${RABBITMQ_USER:-caduceus}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-changeme_rabbitmq_password}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/caduceus-flux}
+      - CONSUL_HOST=${CONSUL_HOST:-consul}
+    ports:
+      - 8011:8011
+    networks:
+      - caduceus-network
+    depends_on:
+      - influxdb
+      - prometheus
+      - rabbitmq
+      - consul
+    restart: unless-stopped
+  mcp-server:
+    build:
+      context: ./backend
+      dockerfile: services/mcp_server/Dockerfile
+    container_name: caduceus-mcp-server
+    environment:
+      - SERVICE_NAME=mcp-server
+      - SERVICE_PORT=8012
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_USER=${RABBITMQ_USER:-caduceus}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-changeme_rabbitmq_password}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/caduceus-flux}
+      - CONSUL_HOST=${CONSUL_HOST:-consul}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-changeme_jwt_secret_key_min_32_chars}
+    ports:
+      - 8012:8012
+    networks:
+      - caduceus-network
+    depends_on:
+      - rabbitmq
+      - consul
+      - topology-service
+      - orchestrator-service
+    restart: unless-stopped
+  metrics-collector-service:
+    build:
+      context: ./backend
+      dockerfile: services/metrics_collector/Dockerfile
+    container_name: caduceus-metrics-collector-service
+    environment:
+      - SERVICE_NAME=metrics-collector-service
+      - SERVICE_PORT=8013
+      - EMULATION_GRPC_HOST=${EMULATION_GRPC_HOST:-localhost}
+      - EMULATION_GRPC_PORT=${EMULATION_GRPC_PORT:-50051}
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      - KAFKA_TOPIC_PREFIX=${KAFKA_TOPIC_PREFIX:-caduceus-flux}
+      - KAFKA_METRICS_TOPIC=${KAFKA_METRICS_TOPIC:-metrics.raw}
+      - KAFKA_ENABLED=${KAFKA_ENABLED:-true}
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_USER=${RABBITMQ_USER:-caduceus}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-changeme_rabbitmq_password}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/caduceus-flux}
+      - CONSUL_HOST=${CONSUL_HOST:-consul}
+      - METRICS_COLLECTION_INTERVAL=${METRICS_COLLECTION_INTERVAL:-5}
+      - METRICS_BATCH_SIZE=${METRICS_BATCH_SIZE:-100}
+    ports:
+      - 8013:8013
+    networks:
+      - caduceus-network
+    depends_on:
+      kafka:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+    restart: unless-stopped
+  osken-controller:
+    build:
+      context: ./controllers/osken
+      dockerfile: Dockerfile
+    container_name: caduceus-osken-controller
+    ports:
+      - ${OSKEN_CONTROLLER_PORT:-6653}:6653
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: caduceus-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SYNC_LIMIT: 2
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_log:/var/lib/zookeeper/log
+    ports:
+      - ${ZOOKEEPER_PORT:-2181}:2181
+    networks:
+      - caduceus-network
+    healthcheck:
+      test:
+        - CMD
+        - nc
+        - -z
+        - localhost
+        - "2181"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: caduceus-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    ports:
+      - ${KAFKA_PORT:-29092}:29092
+      - 9092:9092
+    networks:
+      - caduceus-network
+    healthcheck:
+      test:
+        - CMD
+        - kafka-broker-api-versions
+        - --bootstrap-server
+        - localhost:9092
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.5.0
+    container_name: caduceus-schema-registry
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    ports:
+      - ${SCHEMA_REGISTRY_PORT:-8081}:8081
+    networks:
+      - caduceus-network
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://localhost:8081/
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  kafka-connect:
+    image: confluentinc/cp-kafka-connect:7.5.0
+    container_name: caduceus-kafka-connect
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: kafka:9092
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: caduceus-connect-cluster
+      CONNECT_CONFIG_STORAGE_TOPIC: caduceus-connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: caduceus-connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: caduceus-connect-status
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+      CONNECT_LOG4J_ROOT_LOGLEVEL: INFO
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-caduceus_flux}
+      POSTGRES_USER: ${POSTGRES_USER:-caduceus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_postgres_password}
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-changeme_influxdb_token}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-caduceus-flux}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-metrics}
+    volumes:
+      - ./infrastructure/kafka-connect/connectors:/etc/kafka-connect/connectors
+    ports:
+      - ${KAFKA_CONNECT_PORT:-8083}:8083
+    networks:
+      - caduceus-network
+    command:
+      - bash
+      - -c
+      - 'echo "Installing connector plugins..."
 
-  # Frontend Service
+        confluent-hub install --no-prompt confluentinc/kafka-connect-jdbc:10.7.4
+
+        confluent-hub install --no-prompt confluentinc/kafka-connect-influxdb:1.2.5
+        || echo "InfluxDB connector not available, skipping"
+
+        echo "Starting Kafka Connect..."
+
+        /etc/confluent/docker/run
+
+        '
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://localhost:8083/
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  kafka-connect-init:
+    image: alpine:3.19
+    container_name: caduceus-kafka-connect-init
+    depends_on:
+      kafka-connect:
+        condition: service_healthy
+      postgres-metrics-schema-init:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_CONNECT_URL: http://kafka-connect:8083
+      # Deploy only stable connectors by default. InfluxDB sink plugin expects InfluxDB v1 settings.
+      KAFKA_CONNECT_CONNECTORS: jdbc-sink-metrics
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-caduceus_flux}
+      POSTGRES_USER: ${POSTGRES_USER:-caduceus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_postgres_password}
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-changeme_influxdb_token}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-caduceus-flux}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-metrics}
+    volumes:
+      - ./infrastructure/kafka-connect:/kafka-connect:ro
+    command:
+      - sh
+      - -lc
+      - "apk add --no-cache bash curl jq gettext && bash /kafka-connect/deploy-connectors.sh"
+    networks:
+      - caduceus-network
+    restart: "no"
+
+  postgres-metrics-schema-init:
+    image: postgres:15-alpine
+    container_name: caduceus-postgres-metrics-schema-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: ${POSTGRES_DB:-caduceus_flux}
+      PGUSER: ${POSTGRES_USER:-caduceus}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-changeme_postgres_password}
+    volumes:
+      - ./backend/database/migrations/001_create_metrics_tables.sql:/migrations/001_create_metrics_tables.sql:ro
+    command:
+      - sh
+      - -lc
+      - "psql -v ON_ERROR_STOP=1 -f /migrations/001_create_metrics_tables.sql"
+    networks:
+      - caduceus-network
+    restart: "no"
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: caduceus-kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: caduceus-shared
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      DYNAMIC_CONFIG_ENABLED: "true"
+    ports:
+      - ${KAFKA_UI_PORT:-8093}:8080
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+
+  # -----------------------
+  # Shared Flink (Streaming Analytics)
+  # -----------------------
+  flink-jobmanager:
+    build:
+      context: ./infrastructure/flink
+      dockerfile: Dockerfile
+    image: caduceus-flux-flink:1.18.1
+    container_name: caduceus-flink-jobmanager
+    command: jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.memory.process.size: 1024m
+    ports:
+      - ${FLINK_UI_PORT:-8088}:8081
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+
+  flink-taskmanager:
+    build:
+      context: ./infrastructure/flink
+      dockerfile: Dockerfile
+    image: caduceus-flux-flink:1.18.1
+    container_name: caduceus-flink-taskmanager
+    command: taskmanager
+    depends_on:
+      - flink-jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 4
+        taskmanager.memory.process.size: 2048m
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+
+  flink-metrics-feature-job:
+    build:
+      context: ./infrastructure/flink/jobs/metrics_feature_job
+      dockerfile: Dockerfile
+    container_name: caduceus-flink-metrics-feature-job
+    environment:
+      - FLINK_JOBMANAGER_HOST=flink-jobmanager
+      - FLINK_JOBMANAGER_PORT=8081
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      - KAFKA_RAW_TOPIC=${KAFKA_RAW_TOPIC:-metrics.raw}
+      - KAFKA_PROCESSED_TOPIC=${KAFKA_PROCESSED_TOPIC:-metrics.processed}
+    networks:
+      - caduceus-network
+    depends_on:
+      kafka:
+        condition: service_healthy
+      flink-jobmanager:
+        condition: service_started
+    restart: unless-stopped
+
+  # -----------------------
+  # Shared Hadoop HDFS + Spark (Batch Analytics)
+  # -----------------------
+  hdfs-namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: caduceus-hdfs-namenode
+    environment:
+      CLUSTER_NAME: caduceus
+      CORE_CONF_fs_defaultFS: hdfs://hdfs-namenode:8020
+      HDFS_CONF_dfs_replication: "1"
+      HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check: "false"
+    volumes:
+      - hdfs_namenode_data:/hadoop/dfs/name
+    ports:
+      - ${HDFS_UI_PORT:-9870}:9870
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+
+  hdfs-datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: caduceus-hdfs-datanode
+    depends_on:
+      - hdfs-namenode
+    environment:
+      CORE_CONF_fs_defaultFS: hdfs://hdfs-namenode:8020
+      HDFS_CONF_dfs_replication: "1"
+      HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check: "false"
+    volumes:
+      - hdfs_datanode_data:/hadoop/dfs/data
+    ports:
+      - ${HDFS_DATANODE_UI_PORT:-9864}:9864
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+
+  spark-master:
+    image: apache/spark:3.5.1
+    container_name: caduceus-spark-master
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.master.Master
+      - --host
+      - spark-master
+      - --port
+      - "7077"
+      - --webui-port
+      - "8080"
+    ports:
+      - ${SPARK_UI_PORT:-8094}:8080
+      - ${SPARK_MASTER_PORT:-7077}:7077
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+
+  spark-worker:
+    image: apache/spark:3.5.1
+    container_name: caduceus-spark-worker
+    depends_on:
+      - spark-master
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.worker.Worker
+      - spark://spark-master:7077
+      - --webui-port
+      - "8081"
+    ports:
+      - ${SPARK_WORKER_UI_PORT:-8095}:8081
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+
+  # -----------------------
+  # Shared Hive (SQL on Hadoop)
+  # -----------------------
+  hive-metastore-db:
+    image: postgres:15-alpine
+    container_name: caduceus-hive-metastore-db
+    environment:
+      POSTGRES_DB: ${HIVE_METASTORE_DB_NAME:-hive_metastore}
+      POSTGRES_USER: ${HIVE_METASTORE_DB_USER:-hive}
+      POSTGRES_PASSWORD: ${HIVE_METASTORE_PASSWORD:-changeme_hive_password}
+      # Hive 3.1.3 ships an older Postgres JDBC driver; use md5 auth to avoid SCRAM auth-type incompatibility.
+      POSTGRES_INITDB_ARGS: "--auth-host=md5 --auth-local=md5"
+    volumes:
+      - hive_metastore_db_data:/var/lib/postgresql/data
+    networks:
+      - hive-network
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${HIVE_METASTORE_DB_USER:-hive} -d ${HIVE_METASTORE_DB_NAME:-hive_metastore}
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  hive-metastore:
+    image: apache/hive:3.1.3
+    container_name: caduceus-hive-metastore
+    environment:
+      - SERVICE_NAME=metastore
+      - DB_DRIVER=postgres
+      - HIVE_METASTORE_DB_HOST=hive-metastore-db
+      - HIVE_METASTORE_DB_PORT=5432
+      - HIVE_METASTORE_DB_NAME=${HIVE_METASTORE_DB_NAME:-hive_metastore}
+      - HIVE_METASTORE_DB_USER=${HIVE_METASTORE_DB_USER:-hive}
+      - HIVE_METASTORE_PASSWORD=${HIVE_METASTORE_PASSWORD:-changeme_hive_password}
+      - HDFS_NAMENODE_URI=${HDFS_NAMENODE_URI:-hdfs://hdfs-namenode:8020}
+      - HIVE_WAREHOUSE_DIR=${HIVE_WAREHOUSE_DIR:-/user/hive/warehouse}
+      - METASTORE_PORT=${HIVE_METASTORE_PORT:-9083}
+    volumes:
+      - ./infrastructure/hive/entrypoint.sh:/opt/hive/caduceus-entrypoint.sh:ro
+    entrypoint: ["/bin/bash", "/opt/hive/caduceus-entrypoint.sh"]
+    depends_on:
+      hive-metastore-db:
+        condition: service_healthy
+      hdfs-namenode:
+        condition: service_started
+    ports:
+      - ${HIVE_METASTORE_PORT:-9083}:9083
+    networks:
+      - caduceus-network
+      - hive-network
+    healthcheck:
+      test: ["CMD-SHELL", "bash -lc 'echo > /dev/tcp/127.0.0.1/9083'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    restart: unless-stopped
+
+  hive-server2:
+    image: apache/hive:3.1.3
+    container_name: caduceus-hive-server2
+    environment:
+      - SERVICE_NAME=hiveserver2
+      - DB_DRIVER=postgres
+      - HIVE_METASTORE_DB_HOST=hive-metastore-db
+      - HIVE_METASTORE_DB_PORT=5432
+      - HIVE_METASTORE_DB_NAME=${HIVE_METASTORE_DB_NAME:-hive_metastore}
+      - HIVE_METASTORE_DB_USER=${HIVE_METASTORE_DB_USER:-hive}
+      - HIVE_METASTORE_PASSWORD=${HIVE_METASTORE_PASSWORD:-changeme_hive_password}
+      - HDFS_NAMENODE_URI=${HDFS_NAMENODE_URI:-hdfs://hdfs-namenode:8020}
+      - HIVE_WAREHOUSE_DIR=${HIVE_WAREHOUSE_DIR:-/user/hive/warehouse}
+      # Use a stable, RFC-compliant hostname (avoid docker-compose network underscores in canonical hostnames).
+      - HIVE_METASTORE_URI=thrift://caduceus-hive-metastore.caduceus-hive-network:${HIVE_METASTORE_PORT:-9083}
+      - HIVE_SERVER2_THRIFT_PORT=${HIVE_SERVER2_THRIFT_PORT:-10000}
+      - HIVE_SERVER2_WEBUI_PORT=${HIVE_SERVER2_WEBUI_PORT:-10002}
+    volumes:
+      - ./infrastructure/hive/entrypoint.sh:/opt/hive/caduceus-entrypoint.sh:ro
+    entrypoint: ["/bin/bash", "/opt/hive/caduceus-entrypoint.sh"]
+    depends_on:
+      hive-metastore:
+        condition: service_healthy
+    ports:
+      - ${HIVE_SERVER2_THRIFT_PORT:-10000}:10000
+      - ${HIVE_SERVER2_WEBUI_PORT:-10002}:10002
+    networks:
+      - caduceus-network
+      - hive-network
+    healthcheck:
+      test: ["CMD-SHELL", "bash -lc 'echo > /dev/tcp/127.0.0.1/10002'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    restart: unless-stopped
+
+  # -----------------------
+  # Hue (HDFS + Hive UI)
+  # -----------------------
+  hue:
+    image: gethue/hue:4.11.0
+    container_name: caduceus-hue
+    volumes:
+      - ./infrastructure/hue/z-caduceus.ini:/usr/share/hue/desktop/conf/z-caduceus.ini:ro
+      - shared_secrets:/run/secrets/caduceus:ro
+    ports:
+      - ${HUE_PORT:-8889}:8888
+    networks:
+      - caduceus-network
+    depends_on:
+      shared-secrets-init:
+        condition: service_completed_successfully
+      hdfs-namenode:
+        condition: service_started
+      hive-server2:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ai-gateway-service:
+    build:
+      context: ./backend
+      dockerfile: services/ai_gateway/Dockerfile
+    container_name: caduceus-ai-gateway-service
+    environment:
+      - SERVICE_NAME=ai-gateway-service
+      - SERVICE_PORT=8014
+      - MCP_SERVER_URL=http://mcp-server:8012
+      - MCP_FALLBACK_GATEWAY_URL=http://nginx
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11435}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-https://api.anthropic.com/v1}
+      - GEMINI_BASE_URL=${GEMINI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta}
+      - CONSUL_HOST=${CONSUL_HOST:-consul}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-caduceus_flux}
+      - POSTGRES_USER=${POSTGRES_USER:-caduceus}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme_postgres_password}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-changeme_jwt_secret_key_min_32_chars}
+      - AI_CREDENTIALS_ENCRYPTION_KEY=${AI_CREDENTIALS_ENCRYPTION_KEY:-}
+      - ML_MODELS_STORAGE_ROOT=/var/lib/caduceus/ml_models
+    ports:
+      - 8014:8014
+    networks:
+      - caduceus-network
+    volumes:
+      - ml_models_data:/var/lib/caduceus/ml_models
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - mcp-server
+      - consul
+      - postgres
+      - ollama-proxy
+    restart: unless-stopped
+
+  mcp-tool-hub-service:
+    build:
+      context: ./backend
+      dockerfile: services/mcp_tool_hub/Dockerfile
+    container_name: caduceus-mcp-tool-hub-service
+    environment:
+      - SERVICE_NAME=mcp-tool-hub-service
+      - SERVICE_PORT=8018
+      - CONSUL_HOST=${CONSUL_HOST:-consul}
+      - CONSUL_PORT=${CONSUL_PORT:-8500}
+      - MCP_REGISTRY_PREFIX=${MCP_REGISTRY_PREFIX:-caduceus/mcp/servers}
+      - MCP_TOPOLOGY_PREFIX=${MCP_TOPOLOGY_PREFIX:-caduceus/topologies}
+    ports:
+      - 8018:8018
+    networks:
+      - caduceus-network
+    depends_on:
+      - consul
+    restart: unless-stopped
+
+  # -----------------------
+  # External MCP Servers (optional)
+  # Enable with: docker compose --profile mcp up -d
+  # -----------------------
+  mcp-registry-init:
+    image: python:3.11-slim
+    container_name: caduceus-mcp-registry-init
+    volumes:
+      - ./infrastructure/mcp/register_mcp_servers.py:/opt/register_mcp_servers.py:ro
+    environment:
+      - MCP_TOOL_HUB_URL=${MCP_TOOL_HUB_URL:-http://mcp-tool-hub-service:8018}
+      - MCP_GRAFANA_URL=${MCP_GRAFANA_URL:-http://mcp-grafana:8000}
+      - MCP_GRAFANA_PROFILE=${MCP_GRAFANA_PROFILE:-grafana}
+      - MCP_GRAFANA_READ_ONLY=${MCP_GRAFANA_READ_ONLY:-true}
+      - MCP_INFLUXDB_URL=${MCP_INFLUXDB_URL:-http://mcp-influxdb:8000}
+      - MCP_INFLUXDB_PROFILE=${MCP_INFLUXDB_PROFILE:-influxdb}
+      - MCP_INFLUXDB_READ_ONLY=${MCP_INFLUXDB_READ_ONLY:-true}
+      - MCP_CONSUL_URL=${MCP_CONSUL_URL:-http://consul:8500}
+      - MCP_CONSUL_PROFILE=${MCP_CONSUL_PROFILE:-consul}
+      - MCP_CONSUL_READ_ONLY=${MCP_CONSUL_READ_ONLY:-true}
+      - MCP_KAFKA_URL=${MCP_KAFKA_URL:-http://mcp-kafka:8000}
+      - MCP_KAFKA_PROFILE=${MCP_KAFKA_PROFILE:-kafka}
+      - MCP_KAFKA_READ_ONLY=${MCP_KAFKA_READ_ONLY:-true}
+      - MCP_PROMETHEUS_URL=${MCP_PROMETHEUS_URL:-http://mcp-prometheus:8000}
+      - MCP_PROMETHEUS_PROFILE=${MCP_PROMETHEUS_PROFILE:-prometheus}
+      - MCP_PROMETHEUS_READ_ONLY=${MCP_PROMETHEUS_READ_ONLY:-true}
+      - MCP_RABBITMQ_URL=${MCP_RABBITMQ_URL:-http://mcp-rabbitmq:8000}
+      - MCP_RABBITMQ_PROFILE=${MCP_RABBITMQ_PROFILE:-rabbitmq}
+      - MCP_RABBITMQ_READ_ONLY=${MCP_RABBITMQ_READ_ONLY:-true}
+      - MCP_FLINK_URL=${MCP_FLINK_URL:-http://mcp-flink:8000}
+      - MCP_FLINK_PROFILE=${MCP_FLINK_PROFILE:-flink}
+      - MCP_FLINK_READ_ONLY=${MCP_FLINK_READ_ONLY:-true}
+      - MCP_SPARK_HISTORY_URL=${MCP_SPARK_HISTORY_URL:-http://mcp-spark-history:8000}
+      - MCP_SPARK_HISTORY_PROFILE=${MCP_SPARK_HISTORY_PROFILE:-spark-history}
+      - MCP_SPARK_HISTORY_READ_ONLY=${MCP_SPARK_HISTORY_READ_ONLY:-true}
+      - MCP_HDFS_URL=${MCP_HDFS_URL:-http://mcp-hdfs:8000}
+      - MCP_HDFS_PROFILE=${MCP_HDFS_PROFILE:-hdfs}
+      - MCP_HDFS_READ_ONLY=${MCP_HDFS_READ_ONLY:-true}
+      - MCP_HIVE_URL=${MCP_HIVE_URL:-http://mcp-hive:8000}
+      - MCP_HIVE_PROFILE=${MCP_HIVE_PROFILE:-hive}
+      - MCP_HIVE_READ_ONLY=${MCP_HIVE_READ_ONLY:-true}
+      - MCP_ONOS_URL=${MCP_ONOS_URL:-http://mcp-onos:8000}
+      - MCP_ONOS_PROFILE=${MCP_ONOS_PROFILE:-onos}
+      - MCP_ONOS_READ_ONLY=${MCP_ONOS_READ_ONLY:-false}
+    command: ["python", "/opt/register_mcp_servers.py"]
+    depends_on:
+      - mcp-tool-hub-service
+    networks:
+      - caduceus-network
+    restart: "no"
+    profiles:
+      - mcp
+
+  mcp-grafana:
+    build:
+      context: ./backend
+      dockerfile: services/mcp_proxy/Dockerfile
+    container_name: caduceus-mcp-grafana
+    environment:
+      - SERVICE_NAME=mcp-grafana
+      - SERVICE_PORT=8000
+      - UPSTREAM_URL=${MCP_GRAFANA_UPSTREAM_URL:-http://grafana:3000}
+      - READ_ONLY=${MCP_GRAFANA_READ_ONLY:-true}
+    depends_on:
+      - grafana
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+    profiles:
+      - mcp
+
+  mcp-influxdb:
+    build:
+      context: ./backend
+      dockerfile: services/mcp_proxy/Dockerfile
+    container_name: caduceus-mcp-influxdb
+    environment:
+      - SERVICE_NAME=mcp-influxdb
+      - SERVICE_PORT=8000
+      - UPSTREAM_URL=${MCP_INFLUXDB_UPSTREAM_URL:-http://influxdb:8086}
+      - READ_ONLY=${MCP_INFLUXDB_READ_ONLY:-true}
+    depends_on:
+      - influxdb
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+    profiles:
+      - mcp
+
+  mcp-kafka:
+    build:
+      context: ./backend
+      dockerfile: services/mcp_proxy/Dockerfile
+    container_name: caduceus-mcp-kafka
+    environment:
+      - SERVICE_NAME=mcp-kafka
+      - SERVICE_PORT=8000
+      - UPSTREAM_URL=${MCP_KAFKA_UPSTREAM_URL:-http://kafka-ui:8080}
+      - READ_ONLY=${MCP_KAFKA_READ_ONLY:-true}
+    depends_on:
+      - kafka
+      - kafka-ui
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+    profiles:
+      - mcp
+
+  mcp-prometheus:
+    build:
+      context: ./backend
+      dockerfile: services/mcp_proxy/Dockerfile
+    container_name: caduceus-mcp-prometheus
+    environment:
+      - SERVICE_NAME=mcp-prometheus
+      - SERVICE_PORT=8000
+      - UPSTREAM_URL=${MCP_PROMETHEUS_UPSTREAM_URL:-http://prometheus:9090}
+      - READ_ONLY=${MCP_PROMETHEUS_READ_ONLY:-true}
+    depends_on:
+      - prometheus
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+    profiles:
+      - mcp
+
+  mcp-rabbitmq:
+    build:
+      context: ./backend
+      dockerfile: services/mcp_proxy/Dockerfile
+    container_name: caduceus-mcp-rabbitmq
+    environment:
+      - SERVICE_NAME=mcp-rabbitmq
+      - SERVICE_PORT=8000
+      - UPSTREAM_URL=${MCP_RABBITMQ_UPSTREAM_URL:-http://rabbitmq:15672}
+      - UPSTREAM_BASIC_AUTH=${MCP_RABBITMQ_BASIC_AUTH:-${RABBITMQ_USER:-caduceus}:${RABBITMQ_PASSWORD:-changeme_rabbitmq_password}}
+      - READ_ONLY=${MCP_RABBITMQ_READ_ONLY:-true}
+    depends_on:
+      - rabbitmq
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+    profiles:
+      - mcp
+
+  mcp-flink:
+    build:
+      context: ./backend
+      dockerfile: services/mcp_proxy/Dockerfile
+    container_name: caduceus-mcp-flink
+    environment:
+      - SERVICE_NAME=mcp-flink
+      - SERVICE_PORT=8000
+      - UPSTREAM_URL=${MCP_FLINK_UPSTREAM_URL:-http://flink-jobmanager:8081}
+      - READ_ONLY=${MCP_FLINK_READ_ONLY:-true}
+    depends_on:
+      - flink-jobmanager
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+    profiles:
+      - mcp
+
+  mcp-spark-history:
+    build:
+      context: ./backend
+      dockerfile: services/mcp_proxy/Dockerfile
+    container_name: caduceus-mcp-spark-history
+    environment:
+      - SERVICE_NAME=mcp-spark-history
+      - SERVICE_PORT=8000
+      - UPSTREAM_URL=${MCP_SPARK_HISTORY_UPSTREAM_URL:-http://spark-master:8080}
+      - READ_ONLY=${MCP_SPARK_HISTORY_READ_ONLY:-true}
+    depends_on:
+      - spark-master
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+    profiles:
+      - mcp
+
+  mcp-hdfs:
+    build:
+      context: ./backend
+      dockerfile: services/mcp_proxy/Dockerfile
+    container_name: caduceus-mcp-hdfs
+    environment:
+      - SERVICE_NAME=mcp-hdfs
+      - SERVICE_PORT=8000
+      - UPSTREAM_URL=${MCP_HDFS_UPSTREAM_URL:-http://hdfs-namenode:9870}
+      - READ_ONLY=${MCP_HDFS_READ_ONLY:-true}
+    depends_on:
+      - hdfs-namenode
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+    profiles:
+      - mcp
+
+  mcp-hive:
+    build:
+      context: ./backend
+      dockerfile: services/mcp_proxy/Dockerfile
+    container_name: caduceus-mcp-hive
+    environment:
+      - SERVICE_NAME=mcp-hive
+      - SERVICE_PORT=8000
+      - UPSTREAM_URL=${MCP_HIVE_UPSTREAM_URL:-http://hive-server2:10002}
+      - READ_ONLY=${MCP_HIVE_READ_ONLY:-true}
+    depends_on:
+      - hive-server2
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+    profiles:
+      - mcp
+
+  onos:
+    image: onosproject/onos:2.7.0
+    container_name: caduceus-onos
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+    profiles:
+      - mcp
+
+  mcp-onos:
+    build:
+      context: ./backend
+      dockerfile: services/mcp_proxy/Dockerfile
+    container_name: caduceus-mcp-onos
+    environment:
+      - SERVICE_NAME=mcp-onos
+      - SERVICE_PORT=8000
+      - UPSTREAM_URL=${MCP_ONOS_UPSTREAM_URL:-http://onos:8181}
+      - UPSTREAM_BASIC_AUTH=${MCP_ONOS_BASIC_AUTH:-onos:rocks}
+      - READ_ONLY=${MCP_ONOS_READ_ONLY:-false}
+    depends_on:
+      - onos
+    networks:
+      - caduceus-network
+    restart: unless-stopped
+    profiles:
+      - mcp
+  mano-service:
+    build:
+      context: ./backend
+      dockerfile: services/mano_service/Dockerfile
+    container_name: caduceus-mano-service
+    environment:
+      - SERVICE_NAME=mano-service
+      - SERVICE_PORT=8015
+      - MANO_GRPC_PORT=50052
+      - MANO_SOUTHBOUND_MODE=${MANO_SOUTHBOUND_MODE:-mcp}
+      - MANO_NFVO_BACKEND=${MANO_NFVO_BACKEND:-local}
+      - MANO_OSM_MODE=${MANO_OSM_MODE:-connector}
+      - OSM_CONNECTOR_URL=${OSM_CONNECTOR_URL:-http://osm-connector-service:8020}
+      - OSM_NBI_URL=${OSM_NBI_URL:-}
+      - OSM_USERNAME=${OSM_USERNAME:-}
+      - OSM_PASSWORD=${OSM_PASSWORD:-}
+      - OSM_PROJECT_ID=${OSM_PROJECT_ID:-}
+      - OSM_TOKEN=${OSM_TOKEN:-}
+      - MCP_SERVER_URL=${MCP_SERVER_URL:-http://mcp-server:8012}
+      - ORCHESTRATOR_URL=${ORCHESTRATOR_URL:-http://orchestrator-service:8002}
+      - DEVICE_MANAGER_URL=${DEVICE_MANAGER_URL:-http://device-manager-service:8004}
+      - CONSUL_HOST=${CONSUL_HOST:-consul}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-caduceus_flux}
+      - POSTGRES_USER=${POSTGRES_USER:-caduceus}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme_postgres_password}
+    ports:
+      - 8015:8015
+      - 50052:50052
+    networks:
+      - caduceus-network
+    depends_on:
+      - consul
+      - postgres
+    restart: unless-stopped
+  config-service:
+    build:
+      context: ./backend
+      dockerfile: services/config_service/Dockerfile
+    container_name: caduceus-config-service
+    environment:
+      - SERVICE_NAME=config-service
+      - SERVICE_PORT=8016
+      - MCP_SERVER_URL=${MCP_SERVER_URL:-http://mcp-server:8012}
+      - CONFIG_HTTP_TIMEOUT_SECONDS=${CONFIG_HTTP_TIMEOUT_SECONDS:-60}
+    ports:
+      - 8016:8016
+    networks:
+      - caduceus-network
+    depends_on:
+      - mcp-server
+    restart: unless-stopped
+
+  decision-engine-service:
+    build:
+      context: ./backend
+      dockerfile: services/decision_engine/Dockerfile
+    container_name: caduceus-decision-engine-service
+    environment:
+      - SERVICE_NAME=decision-engine-service
+      - SERVICE_PORT=8017
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      - KAFKA_METRICS_PROCESSED_TOPIC=${KAFKA_METRICS_PROCESSED_TOPIC:-metrics.processed}
+      - KAFKA_ALERTS_ANOMALY_TOPIC=${KAFKA_ALERTS_ANOMALY_TOPIC:-alerts.anomaly}
+      - KAFKA_ALERTS_SECURITY_TOPIC=${KAFKA_ALERTS_SECURITY_TOPIC:-alerts.security}
+      - KAFKA_ACTIONS_ROUTING_TOPIC=${KAFKA_ACTIONS_ROUTING_TOPIC:-actions.routing}
+      - KAFKA_ACTIONS_MANO_TOPIC=${KAFKA_ACTIONS_MANO_TOPIC:-actions.mano}
+      - AI_GATEWAY_URL=${AI_GATEWAY_URL:-http://ai-gateway-service:8014}
+    ports:
+      - 8017:8017
+    networks:
+      - caduceus-network
+    depends_on:
+      kafka:
+        condition: service_healthy
+      ai-gateway-service:
+        condition: service_started
+    restart: unless-stopped
+  osm-connector-service:
+    build:
+      context: ./backend
+      dockerfile: services/osm_connector/Dockerfile
+    container_name: caduceus-osm-connector-service
+    environment:
+      - SERVICE_NAME=osm-connector-service
+      - SERVICE_PORT=8020
+      - CONSUL_HOST=${CONSUL_HOST:-consul}
+      - OSM_NBI_URL=${OSM_NBI_URL:-}
+      - OSM_USERNAME=${OSM_USERNAME:-}
+      - OSM_PASSWORD=${OSM_PASSWORD:-}
+      - OSM_PROJECT_ID=${OSM_PROJECT_ID:-}
+      - OSM_TOKEN=${OSM_TOKEN:-}
+      - OSM_TOKEN_CACHE_TTL_SECONDS=${OSM_TOKEN_CACHE_TTL_SECONDS:-900}
+    ports:
+      - 8020:8020
+    networks:
+      - caduceus-network
+      - osm-network
+    depends_on:
+      - consul
+    restart: unless-stopped
+
+  # Build-only (and optional standalone) VIM emulator. Topology-scoped instances are spawned by orchestrator.
+  vimemu-service:
+    build:
+      context: ./backend
+      dockerfile: services/vimemu_service/Dockerfile
+    image: caduceus-flux-vimemu-service
+    container_name: caduceus-vimemu-service
+    environment:
+      - SERVICE_NAME=vimemu-service
+      - SERVICE_PORT=6001
+      - TOPOLOGY_ID=${VIMEMU_TOPOLOGY_ID:-}
+      - ORCHESTRATOR_URL=${ORCHESTRATOR_URL:-http://orchestrator-service:8002}
+      - CONSUL_HOST=${CONSUL_HOST:-consul}
+      - CONSUL_PORT=${CONSUL_PORT:-8500}
+    networks:
+      - caduceus-network
+    depends_on:
+      - consul
+    restart: unless-stopped
+
+  # -----------------------
+  # ETSI OSM (Isolated stack)
+  # -----------------------
+  osm-nbi:
+    image: opensourcemano/nbi:latest
+    container_name: osm-nbi
+    environment:
+      - OSMNBI_DATABASE_URI=mongodb://mongo:27017
+      - OSMNBI_MESSAGE_HOST=kafka
+      - OSMNBI_MESSAGE_PORT=9092
+      - OSMNBI_AUTHENTICATION_BACKEND=internal
+      - OSMNBI_LOG_LEVEL=INFO
+    networks:
+      osm-network:
+        aliases:
+          - osm-nbi
+          - nbi
+    depends_on:
+      - osm-mongo
+      - osm-kafka
+      - osm-prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import socket; s=socket.create_connection(('127.0.0.1',9999),2); s.close()\""]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  osm-lcm:
+    image: opensourcemano/lcm:latest
+    container_name: osm-lcm
+    environment:
+      - OSMLCM_DATABASE_URI=mongodb://mongo:27017
+      - OSMLCM_MESSAGE_HOST=kafka
+      - OSMLCM_MESSAGE_PORT=9092
+      - OSMLCM_RO_HOST=ro
+      - OSMLCM_RO_PORT=9090
+      - OSMLCM_LOG_LEVEL=INFO
+      # Prevent crash-loop when upstream image sets post-renderer paths but scripts aren't present
+      - OSMLCM_MAINPOSTRENDERERPATH=
+      - OSMLCM_PODLABELSPOSTRENDERERPATH=
+      - OSMLCM_NODESELECTORPOSTRENDERERPATH=
+      # Prevent startup crash in opensourcemano/lcm GitOps bootstrap when repo URLs are unset
+      - OSMLCM_GITOPS_GIT_BASE_URL=https://example.invalid
+      - OSMLCM_GITOPS_FLEET_REPO_URL=https://example.invalid/fleet.git
+      - OSMLCM_GITOPS_SW_CATALOGS_REPO_URL=https://example.invalid/sw-catalogs.git
+    volumes:
+      - ./infrastructure/osm/mgmtcluster-kubeconfig.yaml:/etc/osm/mgmtcluster-kubeconfig.yaml:ro
+    networks:
+      osm-network:
+        aliases:
+          - lcm
+    depends_on:
+      - osm-mongo
+      - osm-kafka
+      - osm-ro
+    restart: unless-stopped
+
+  osm-ro:
+    image: opensourcemano/ro:latest
+    container_name: osm-ro
+    environment:
+      - OSMRO_DATABASE_URI=mongodb://mongo:27017
+      - OSMRO_MESSAGE_HOST=kafka
+      - OSMRO_MESSAGE_PORT=9092
+      - RO_DB_HOST=mysql
+      - RO_DB_OVIM_HOST=mysql
+      - RO_DB_ROOT_PASSWORD=osmrootpw
+      - RO_DB_OVIM_ROOT_PASSWORD=osmrootpw
+      - RO_DB_USER=mano
+      - RO_DB_PASSWORD=manopw
+      - RO_DB_OVIM_USER=mano
+      - RO_DB_OVIM_PASSWORD=manopw
+      - RO_DB_NAME=mano_db
+      - RO_DB_OVIM_NAME=mano_vim_db
+    networks:
+      osm-network:
+        aliases:
+          - ro
+    depends_on:
+      - osm-mongo
+      - osm-kafka
+      - osm-mysql
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import socket; s=socket.create_connection(('127.0.0.1',9090),2); s.close()\""]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  osm-mongo:
+    image: mongo:6
+    container_name: osm-mongo
+    command: ["mongod", "--bind_ip_all"]
+    networks:
+      osm-network:
+        aliases:
+          - mongo
+    volumes:
+      - osm_mongo_data:/data/db
+    restart: unless-stopped
+
+  osm-mysql:
+    image: mysql:8
+    container_name: osm-mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=osmrootpw
+      - MYSQL_DATABASE=mano_db
+      - MYSQL_USER=mano
+      - MYSQL_PASSWORD=manopw
+    networks:
+      osm-network:
+        aliases:
+          - mysql
+    volumes:
+      - osm_mysql_data:/var/lib/mysql
+    restart: unless-stopped
+
+  osm-zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: osm-zookeeper
+    environment:
+      - ZOOKEEPER_CLIENT_PORT=2181
+      - ZOOKEEPER_TICK_TIME=2000
+    networks:
+      osm-network:
+        aliases:
+          - zookeeper
+    volumes:
+      - osm_zookeeper_data:/var/lib/zookeeper/data
+      - osm_zookeeper_log:/var/lib/zookeeper/log
+    restart: unless-stopped
+
+  osm-kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: osm-kafka
+    depends_on:
+      - osm-zookeeper
+    environment:
+      - KAFKA_BROKER_ID=2
+      - KAFKA_ZOOKEEPER_CONNECT=osm-zookeeper:2181
+      - KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+    networks:
+      osm-network:
+        aliases:
+          - kafka
+    volumes:
+      - osm_kafka_data:/var/lib/kafka/data
+    restart: unless-stopped
+
+  osm-prometheus:
+    image: prom/prometheus:latest
+    container_name: osm-prometheus
+    networks:
+      osm-network:
+        aliases:
+          - prometheus
+    restart: unless-stopped
+
+  osm-ng-ui:
+    image: opensourcemano/ng-ui:latest
+    container_name: osm-ng-ui
+    depends_on:
+      - osm-nbi
+    ports:
+      - ${OSM_NG_UI_PORT:-8091}:80
+    networks:
+      - osm-network
+      - caduceus-network
+    restart: unless-stopped
+
+  osm-light-ui:
+    image: opensourcemano/light-ui:latest
+    container_name: osm-light-ui
+    depends_on:
+      - osm-nbi
+    ports:
+      - ${OSM_LIGHT_UI_PORT:-8092}:80
+    networks:
+      - osm-network
+      - caduceus-network
+    restart: unless-stopped
+  ollama-proxy:
+    image: alpine/socat:1.8.0.0
+    container_name: caduceus-ollama-proxy
+    network_mode: host
+    command:
+      - "TCP-LISTEN:11435,fork,reuseaddr"
+      - "TCP:127.0.0.1:11434"
+    restart: unless-stopped
+  jupyterlab:
+    build:
+      context: ./infrastructure/jupyter
+      dockerfile: Dockerfile
+    container_name: caduceus-jupyterlab
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+      - JUPYTER_TOKEN=${JUPYTER_TOKEN:-changeme_jupyter_token}
+      - INFLUXDB_URL=${INFLUXDB_URL:-http://influxdb:8086}
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:-changeme_influxdb_token}
+      - INFLUXDB_ORG=${INFLUXDB_ORG:-caduceus-flux}
+      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET:-metrics}
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      - SPARK_MASTER_URL=${SPARK_MASTER_URL:-spark://spark-master:7077}
+      - HDFS_NAMENODE_URL=${HDFS_NAMENODE_URL:-hdfs://hdfs-namenode:8020}
+      - HDFS_WEB_URL=${HDFS_WEB_URL:-http://hdfs-namenode:9870}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-caduceus_flux}
+      - POSTGRES_USER=${POSTGRES_USER:-caduceus}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme_postgres_password}
+    command:
+      - start-notebook.sh
+      - --ServerApp.base_url=/jupyter/
+      - --ServerApp.allow_remote_access=True
+      - --ServerApp.token=${JUPYTER_TOKEN:-changeme_jupyter_token}
+    ports:
+      - ${JUPYTER_PORT:-8888}:8888
+    networks:
+      - caduceus-network
+    volumes:
+      - jupyter_work:/home/jovyan/work
+      - ml_models_data:/home/jovyan/work/ml_models
+      - pcap_data:/home/jovyan/work/pcaps
+    restart: unless-stopped
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: mininet-frontend
-    restart: unless-stopped
+      args:
+        - VITE_API_URL=${VITE_API_URL:-/api}
+    container_name: caduceus-frontend
     ports:
-      - "3000:80"
-    depends_on:
-      backend:
-        condition: service_healthy
+      - ${FRONTEND_PORT:-3000}:80
     networks:
-      - mininet-network
-    environment:
-      - REACT_APP_API_URL=http://localhost:5000
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-
+      - caduceus-network
+    depends_on:
+      - mcp-server
+      - webshell-service
+    restart: unless-stopped
 networks:
-  mininet-network:
+  caduceus-network:
     driver: bridge
     ipam:
       config:
         - subnet: 172.20.0.0/16
-
+  hive-network:
+    name: caduceus-hive-network
+    driver: bridge
+  osm-network:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.26.0.0/16
 volumes:
-  mongodb_data:
-    driver: local
-  mongodb_config:
-    driver: local
-  pox_data:
-    driver: local
-  odl_data:
-    driver: local
-  odl_logs:
-    driver: local
+  postgres_data: null
+  mongodb_data: null
+  pgadmin_data:
+    name: caduceus-pgadmin
+  shared_secrets:
+    name: caduceus-shared-secrets
+  redis_data: null
+  influxdb_data: null
+  rabbitmq_data: null
+  consul_data: null
+  prometheus_data: null
+  grafana_data: null
+  emulation_snapshots: null
+  p4_programs:
+    name: caduceus-p4-programs
+  ml_models_data:
+    name: caduceus-ml-models
+  jupyter_work:
+    name: caduceus-jupyter-work
+  pcap_data:
+    name: caduceus-pcap-data
+  zookeeper_data: null
+  zookeeper_log: null
+  kafka_data: null
+  osm_mongo_data: null
+  osm_mysql_data: null
+  osm_zookeeper_data: null
+  osm_zookeeper_log: null
+  osm_kafka_data: null
+  hdfs_namenode_data:
+    name: caduceus-hdfs-namenode
+  hdfs_datanode_data:
+    name: caduceus-hdfs-datanode
+  hive_metastore_db_data:
+    name: caduceus-hive-metastore-db

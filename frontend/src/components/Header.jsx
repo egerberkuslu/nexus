@@ -18,7 +18,7 @@ const Header = ({
           <div className="flex items-center space-x-6">
             <img
               src="../rsz_logo2.png"
-              alt="CaduceusFlux Logo"
+              alt="Nexus Logo"
               className="w-24 object-contain"
               style={{
                 mixBlendMode: 'multiply',
@@ -27,7 +27,7 @@ const Header = ({
             />
             <div>
               <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-800 to-gray-900 bg-clip-text text-transparent">
-                CaduceusFlux
+                Nexus
               </h1>
               <p className="text-gray-600 text-sm">
                 Software-Defined Network Management & Real-time Monitoring

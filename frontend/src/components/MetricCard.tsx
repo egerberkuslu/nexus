@@ -57,7 +57,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   color = 'blue',
   subtitle,
 }) => {
-  const colors = colorClasses[color]
+  const colors = colorClasses[color] ?? colorClasses.blue
 
   return (
     <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-6 shadow hover:shadow-lg transition-all duration-300 hover:scale-105">

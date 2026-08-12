@@ -6,7 +6,7 @@ import {
   Shield,
   BarChart3
 } from 'lucide-react';
-import StatusBadge from '../StatusBadge';
+import StatusBadge from '../StatusBadgeLegacy';
 import ActionButton from '../ActionButton';
 
 // Helper to parse the CLI port_stats string into structured rows

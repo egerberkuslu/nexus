@@ -218,7 +218,7 @@ services:
       - ./infrastructure/grafana/dashboards:/etc/grafana/provisioning/dashboards
       - ./infrastructure/grafana/datasources:/etc/grafana/provisioning/datasources
     ports:
-      - ${GRAFANA_PORT:-3001}:3000
+      - ${GRAFANA_PORT:-3011}:3000
     networks:
       - caduceus-network
     depends_on:
@@ -1820,7 +1820,7 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.20.0.0/16
+        - subnet: 172.25.0.0/16
   hive-network:
     name: caduceus-hive-network
     driver: bridge

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Wifi, Maximize2, Minimize2 } from 'lucide-react';
-import StatusBadge from './StatusBadge';
+import StatusBadge from './StatusBadgeLegacy';
 
 const Header = ({
   networkStatus,

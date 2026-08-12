@@ -6,7 +6,7 @@ import {
   Network,
   FileText
 } from 'lucide-react';
-import StatusBadge from '../StatusBadge';
+import StatusBadge from '../StatusBadgeLegacy';
 import ActionButton from '../ActionButton';
 
 const ArpTablesPanel = ({ 

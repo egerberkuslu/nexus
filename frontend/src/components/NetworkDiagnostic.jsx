@@ -10,7 +10,7 @@ import {
 // Import all components
 
 
-import StatusBadge from './StatusBadge';
+import StatusBadge from './StatusBadgeLegacy';
 import ActionButton from './ActionButton';
 import DiagnosticSidebar from './DiagnosticSidebar';
 

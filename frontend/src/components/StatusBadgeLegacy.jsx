@@ -6,8 +6,8 @@ const StatusBadge = ({ status, text, icon, pulse = false }) => (
     : 'bg-red-100 text-red-700 border-red-300'
     }`}>
     <div className={`w-3 h-3 rounded-full ${status ? 'bg-emerald-500' : 'bg-red-500'} ${pulse ? 'animate-pulse' : ''}`}></div>
-    {icon && <span className="text-lg">{icon}</span>}
-    {text}
+    {icon && <span>{icon}</span>}
+    <span>{text}</span>
   </span>
 );
 

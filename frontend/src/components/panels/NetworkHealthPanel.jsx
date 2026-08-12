@@ -8,7 +8,7 @@ import {
   Zap,
   Monitor
 } from 'lucide-react';
-import StatusBadge from '../StatusBadge.jsx';
+import StatusBadge from '../StatusBadgeLegacy.jsx';
 import ActionButton from '../ActionButton.jsx';
 
 const NetworkHealthPanel = ({

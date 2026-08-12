@@ -65,6 +65,7 @@ RUN pip3 install 'matplotlib>=3.5.0'
 # The script will clean up system matplotlib before installing mininet-wifi
 RUN util/install.sh -Wlnfv
 
+
 # Clone Containernet with WiFi support (ramonfontes fork)
 WORKDIR /root
 RUN git clone https://github.com/ramonfontes/containernet.git
@@ -88,6 +89,11 @@ RUN pip3 install --no-cache-dir \
     pyyaml>=6.0 \
     psutil>=5.9.0 \
     netifaces>=0.11.0
+
+# mininet-wifi 2.7 imports pkg_resources (removed from setuptools>=81). Pin it
+# back AFTER all other pip installs so nothing upgrades it away; without this
+# mn_wifi.link/wmediumdConnector fail to import and WiFi silently degrades.
+RUN python3 -m pip install --no-cache-dir "setuptools<81"
 
 # Copy gRPC agent code + protocols + scripts + proto
 COPY grpc_agent /opt/grpc_agent

@@ -24,6 +24,10 @@ service EmulationService {
     rpc GetDevice(GetDeviceRequest) returns (DeviceResponse);
     rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
 
+    // Position Control (runtime mobility, e.g. driven by an external physics engine)
+    rpc SetPosition(SetPositionRequest) returns (SetPositionResponse);
+    rpc SetPositionsBatch(SetPositionsBatchRequest) returns (SetPositionResponse);
+
     // Link Management
     rpc AddLink(AddLinkRequest) returns (LinkResponse);
     rpc RemoveLink(RemoveLinkRequest) returns (LinkResponse);
@@ -208,6 +212,24 @@ message ListDevicesRequest {
 
 message ListDevicesResponse {
     repeated Device devices = 1;
+}
+
+// Position Messages
+message SetPositionRequest {
+    string device_name = 1;
+    double x = 2;
+    double y = 3;
+    double z = 4;
+}
+
+message SetPositionsBatchRequest {
+    repeated SetPositionRequest positions = 1;
+}
+
+message SetPositionResponse {
+    bool success = 1;
+    string message = 2;
+    int32 updated_count = 3;
 }
 
 // Link Messages

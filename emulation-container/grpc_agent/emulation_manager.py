@@ -75,6 +75,29 @@ def _configure_docker_sdk_timeout() -> None:
 
 _configure_docker_sdk_timeout()
 
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    """Read a boolean feature flag from the environment."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on", "enable", "enabled")
+
+
+def _env_number(name, default, cast):
+    """Read a numeric tunable from the environment, falling back on bad input."""
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        return cast(str(raw).strip())
+    except (TypeError, ValueError):
+        logging.getLogger(__name__).warning(
+            "Invalid value for %s (%r); using default %s", name, raw, default
+        )
+        return default
+
+
 from mininet.node import Controller, RemoteController, OVSKernelSwitch, Node as MininetNode
 from mininet.cli import CLI
 from mininet.log import setLogLevel, info
@@ -175,6 +198,8 @@ class EmulationManager:
         self.net = None
         self.net_wifi = None
         self.is_wifi_enabled = False
+        # Realistic wireless channel (wmediumd) is opt-in; see CADUCEUS_WMEDIUMD.
+        self.is_wmediumd_enabled = False
         self.emulation_id = None
         self.topology_id = None
         self.start_time = None
@@ -614,13 +639,61 @@ class EmulationManager:
             # without Mininet-WiFi extensions (no addStation/addAccessPoint/configureWifiNodes). In that
             # case, we transparently fall back to a wired emulation (AP->switch, STA->host) so the
             # topology still starts instead of failing mid-build.
-            self.net = Containernet(
-                topo=None,
-                build=False,
-                controller=None,
-                autoSetMacs=True,
-                autoStaticArp=True
-            )
+            # Optional realistic wireless channel. Disabled by default: without the
+            # CADUCEUS_WMEDIUMD flag the network is created exactly as before (ideal
+            # channel, no wmediumd process).
+            self.is_wmediumd_enabled = False
+            net_kwargs = {}
+            if self.is_wifi_enabled and _env_flag("CADUCEUS_WMEDIUMD", False):
+                try:
+                    from mn_wifi.link import wmediumd  # type: ignore
+                    from mn_wifi.wmediumdConnector import interference  # type: ignore
+
+                    noise_th = _env_number("CADUCEUS_NOISE_TH", -91, int)
+                    net_kwargs = {
+                        "link": wmediumd,
+                        "wmediumd_mode": interference,
+                        "noise_th": noise_th,
+                    }
+                    self.is_wmediumd_enabled = True
+                    logger.info(
+                        "wmediumd enabled (mode=interference, noise_th=%s)", noise_th
+                    )
+                except ImportError as exc:
+                    logger.warning(
+                        "CADUCEUS_WMEDIUMD requested but wmediumd support is unavailable (%s); "
+                        "falling back to the ideal wireless channel.",
+                        exc,
+                    )
+                    net_kwargs = {}
+                    self.is_wmediumd_enabled = False
+
+            try:
+                self.net = Containernet(
+                    topo=None,
+                    build=False,
+                    controller=None,
+                    autoSetMacs=True,
+                    autoStaticArp=True,
+                    **net_kwargs
+                )
+            except TypeError as exc:
+                if not net_kwargs:
+                    raise
+                logger.warning(
+                    "This Containernet build does not accept wmediumd parameters (%s); "
+                    "falling back to the ideal wireless channel.",
+                    exc,
+                )
+                self.is_wmediumd_enabled = False
+                net_kwargs = {}
+                self.net = Containernet(
+                    topo=None,
+                    build=False,
+                    controller=None,
+                    autoSetMacs=True,
+                    autoStaticArp=True
+                )
 
             if self.is_wifi_enabled:
                 required = ("addAccessPoint", "addStation", "configureWifiNodes", "setPropagationModel")
@@ -632,6 +705,7 @@ class EmulationManager:
                         ", ".join(missing),
                     )
                     self.is_wifi_enabled = False
+                    self.is_wmediumd_enabled = False
 
             self.net_wifi = self.net if self.is_wifi_enabled else None
 
@@ -649,11 +723,19 @@ class EmulationManager:
             # Configure WiFi if enabled
             if self.is_wifi_enabled:
                 logger.info("Configuring WiFi network...")
+                prop_exp = _env_number("CADUCEUS_PROP_EXP", 4.0, float)
                 try:
-                    self.net.configureWifiNodes()
-                    # Set propagation model
-                    self.net.setPropagationModel(model="logDistance", exp=4)
-                    logger.info("WiFi propagation model configured")
+                    if self.is_wmediumd_enabled:
+                        # Mininet-WiFi bakes the propagation model into the wmediumd
+                        # channel at interface-configuration time, so it must be set
+                        # before configureWifiNodes() when wmediumd drives the medium.
+                        self.net.setPropagationModel(model="logDistance", exp=prop_exp)
+                        self.net.configureWifiNodes()
+                    else:
+                        self.net.configureWifiNodes()
+                        # Set propagation model
+                        self.net.setPropagationModel(model="logDistance", exp=prop_exp)
+                    logger.info("WiFi propagation model configured (logDistance, exp=%s)", prop_exp)
                 except Exception as e:
                     logger.warning(f"Could not set propagation model: {e}")
 
@@ -694,6 +776,12 @@ class EmulationManager:
                     pass
                 except Exception as e:
                     logger.debug(f"Could not plot WiFi graph: {e}")
+
+                if self.is_wmediumd_enabled:
+                    try:
+                        self._wait_for_wifi_convergence()
+                    except Exception as e:
+                        logger.warning(f"WiFi convergence wait failed: {e}")
 
             # Apply device-level configuration now that the network is up
             self._apply_post_start_configuration()
@@ -745,6 +833,74 @@ class EmulationManager:
                 'message': error_msg if error_msg and error_msg != '0' else f"Network startup failed: {type(e).__name__}",
                 'emulation_id': ''
             }
+
+    def _wait_for_wifi_convergence(self) -> None:
+        """
+        Let the emulated wireless medium settle before traffic is generated.
+
+        With wmediumd the channel is no longer ideal: the first frames after interface
+        bring-up are dropped until every station has associated (infrastructure mode) or
+        until the IBSS cells have merged (ad-hoc). Only used when wmediumd is enabled, so
+        the default ideal-channel path keeps its previous timing.
+        """
+        stations = list(getattr(self.net, "stations", []) or [])
+        if not stations:
+            return
+
+        def _associated_to(sta):
+            try:
+                intfs = getattr(sta, "wintfs", None) or []
+                if not intfs:
+                    return None
+                return getattr(intfs[0], "associatedTo", None)
+            except Exception:
+                return None
+
+        aps = list(getattr(self.net, "aps", []) or [])
+        settle = _env_number("CADUCEUS_WIFI_SETTLE_SECONDS", 2.0, float)
+
+        if aps:
+            timeout = _env_number("CADUCEUS_WIFI_ASSOC_TIMEOUT", 10.0, float)
+            logger.info(
+                "Waiting up to %ss for %d station(s) to associate...", timeout, len(stations)
+            )
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                if all(_associated_to(sta) for sta in stations):
+                    break
+                time.sleep(0.3)
+
+            pending = [
+                getattr(sta, "name", "?") for sta in stations if not _associated_to(sta)
+            ]
+            if pending:
+                logger.warning(
+                    "Stations still unassociated after %ss: %s", timeout, ", ".join(pending)
+                )
+            else:
+                logger.info("All %d station(s) associated", len(stations))
+            time.sleep(settle)
+        else:
+            # Ad-hoc/mesh cells need a moment to merge and the first frame of every pair
+            # is lost, so warm each pair up front.
+            time.sleep(_env_number("CADUCEUS_WIFI_ADHOC_MERGE_SECONDS", 3.0, float))
+            warmed = 0
+            for sta in stations:
+                for other in stations:
+                    if other is sta:
+                        continue
+                    try:
+                        target_ip = other.IP()
+                    except Exception:
+                        target_ip = None
+                    if not target_ip:
+                        continue
+                    try:
+                        sta.cmd("ping -c 1 -W 1 %s >/dev/null 2>&1" % target_ip)
+                        warmed += 1
+                    except Exception as exc:
+                        logger.debug("Warmup ping %s->%s failed: %s", sta, target_ip, exc)
+            logger.info("Ad-hoc warmup completed (%d pings)", warmed)
 
     def _auto_assign_missing_ips(self, topology) -> None:
         """

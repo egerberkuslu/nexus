@@ -27,6 +27,14 @@ from shared.utils.consul_client import ConsulClient
 from shared.database.postgres import SessionLocal, init_db
 from shared.models.runtime import RuntimeDevice
 
+# gRPC stubs (generated during the container build from proto/emulation.proto)
+try:
+    import emulation_pb2  # type: ignore
+    import emulation_pb2_grpc  # type: ignore
+except Exception:
+    emulation_pb2 = None  # type: ignore
+    emulation_pb2_grpc = None  # type: ignore
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -57,6 +65,8 @@ GRPC_PORT = int(os.getenv("EMULATION_CONTAINER_PORT", "50051"))
 SERVICE_PORT = 8004
 ORCHESTRATOR_URL = (os.getenv("ORCHESTRATOR_URL", "http://orchestrator-service:8002") or "").rstrip("/")
 DEVICE_MANAGER_HTTP_TIMEOUT_SECONDS = float(os.getenv("DEVICE_MANAGER_HTTP_TIMEOUT_SECONDS", "45"))
+# Position updates are latency sensitive (streamed at ~10 Hz), so they get a short timeout.
+DEVICE_MANAGER_GRPC_TIMEOUT_SECONDS = float(os.getenv("DEVICE_MANAGER_GRPC_TIMEOUT_SECONDS", "5"))
 
 # In-memory device registry
 device_registry: Dict[str, Dict] = {}
@@ -162,6 +172,12 @@ class DeviceUpdate(BaseModel):
     status: Optional[str] = None
 
 
+class DevicePosition(BaseModel):
+    x: float
+    y: float
+    z: float
+
+
 class DeviceResponse(BaseModel):
     name: str
     device_type: str
@@ -183,10 +199,22 @@ class LinkConfig(BaseModel):
 
 
 # Helper functions
-async def get_grpc_channel():
+def _emulation_grpc_target(topology_id: Optional[str] = None) -> str:
+    """Resolve the gRPC endpoint of the emulation container serving a topology.
+
+    Each running topology gets its own container named `caduceus-emu-<id[:8]>`
+    (same convention as the monitoring and metrics services); the configured
+    EMULATION_CONTAINER_HOST is only the single-topology fallback.
+    """
+    if topology_id:
+        return f"caduceus-emu-{str(topology_id)[:8]}:{GRPC_PORT}"
+    return f"{GRPC_HOST}:{GRPC_PORT}"
+
+
+async def get_grpc_channel(topology_id: Optional[str] = None):
     """Get gRPC channel to emulation container"""
     try:
-        channel = grpc.aio.insecure_channel(f"{GRPC_HOST}:{GRPC_PORT}")
+        channel = grpc.aio.insecure_channel(_emulation_grpc_target(topology_id))
         return channel
     except Exception as e:
         logger.error(f"Failed to create gRPC channel: {e}")
@@ -538,6 +566,60 @@ async def update_device(device_name: str, update: DeviceUpdate):
     publish_event("updated", device)
 
     return DeviceResponse(**device)
+
+
+@app.put("/api/devices/{device_name}/position")
+async def set_device_position(device_name: str, position: DevicePosition):
+    """Move a station or access point in the running emulation.
+
+    Built for an external physics service (Gazebo) streaming float 3D positions
+    at ~10 Hz, so the coordinates are forwarded unrounded and no RabbitMQ event
+    is published per update.
+    """
+    if device_name not in device_registry:
+        raise HTTPException(status_code=404, detail=f"Device {device_name} not found")
+
+    if not (emulation_pb2 and emulation_pb2_grpc):
+        raise HTTPException(status_code=503, detail="gRPC stubs not available in device manager service")
+
+    device = device_registry[device_name]
+    topology_id = device.get("topology_id")
+
+    channel = await get_grpc_channel(topology_id)
+    try:
+        stub = emulation_pb2_grpc.EmulationServiceStub(channel)
+        response = await stub.SetPosition(
+            emulation_pb2.SetPositionRequest(
+                device_name=device_name,
+                x=position.x,
+                y=position.y,
+                z=position.z,
+            ),
+            timeout=DEVICE_MANAGER_GRPC_TIMEOUT_SECONDS,
+        )
+    except grpc.aio.AioRpcError as exc:
+        logger.error("SetPosition gRPC call failed for %s: %s", device_name, exc)
+        raise HTTPException(status_code=503, detail=f"Emulation container unavailable: {exc.details()}")
+    except Exception as exc:
+        logger.error("SetPosition failed for %s: %s", device_name, exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        await channel.close()
+
+    if not response.success:
+        raise HTTPException(status_code=400, detail=response.message)
+
+    # Keep the in-memory registry in sync so GET /api/devices reports the move.
+    device.setdefault("properties", {})["position"] = f"{position.x},{position.y},{position.z}"
+
+    return {
+        "device": device_name,
+        "x": position.x,
+        "y": position.y,
+        "z": position.z,
+        "message": response.message,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
 
 
 @app.delete("/api/devices/{device_name}", status_code=204)

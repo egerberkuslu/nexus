@@ -2129,7 +2129,7 @@ INFLUXDB_TOKEN = os.getenv("INFLUXDB_TOKEN", "changeme_influxdb_token")
 INFLUXDB_ORG = os.getenv("INFLUXDB_ORG", "caduceus-flux")
 TOPOLOGY_INFRA_MODE = os.getenv("TOPOLOGY_INFRA_MODE", "shared").strip().lower()  # shared | isolated
 
-MAIN_DOCKER_NETWORK = "caduceus-flux_caduceus-network"
+MAIN_DOCKER_NETWORK = os.getenv("EMULATION_DOCKER_NETWORK", "nexus_caduceus-network")
 
 OSM_TOPOLOGY_MODE = os.getenv("OSM_TOPOLOGY_MODE", "isolated").strip().lower()  # isolated | disabled
 OSM_AUTO_BOOTSTRAP_ISOLATED = str(os.getenv("OSM_AUTO_BOOTSTRAP_ISOLATED", "true") or "").strip().lower() in (
@@ -3216,6 +3216,31 @@ def _is_port_allocation_error(exc: Exception) -> bool:
     return "port is already allocated" in msg or "bind for" in msg and "failed" in msg
 
 
+# Optional wireless-realism knobs consumed by the emulation agent (mininet-wifi
+# wmediumd support). They are passed through from the orchestrator environment only
+# when set, so the emulation container keeps its previous defaults otherwise.
+_EMULATION_WIRELESS_ENV_KEYS = (
+    "CADUCEUS_WMEDIUMD",
+    "CADUCEUS_NOISE_TH",
+    "CADUCEUS_PROP_EXP",
+    "CADUCEUS_WIFI_ASSOC_TIMEOUT",
+    "CADUCEUS_WIFI_SETTLE_SECONDS",
+    "CADUCEUS_WIFI_ADHOC_MERGE_SECONDS",
+)
+
+
+def _emulation_wireless_env() -> dict[str, str]:
+    """Collect wireless-realism env vars to forward to the emulation container."""
+    forwarded = {
+        key: str(os.environ[key])
+        for key in _EMULATION_WIRELESS_ENV_KEYS
+        if os.environ.get(key) not in (None, "")
+    }
+    if forwarded:
+        logger.info("Forwarding wireless env to emulation container: %s", forwarded)
+    return forwarded
+
+
 def spawn_emulation_container(topology_id: str, force_recreate: bool = False) -> tuple[str, int, str]:
     """
     Spawn a new emulation container for a topology.
@@ -3291,7 +3316,7 @@ def spawn_emulation_container(topology_id: str, force_recreate: bool = False) ->
                     container = docker_client.containers.run(
                         desired_image,
                         name=container_name,
-                        network='caduceus-flux_caduceus-network',
+                        network=MAIN_DOCKER_NETWORK,
                         ports={'50051/tcp': port},
                         labels={
                             "caduceus.topology_id": topology_id,
@@ -3301,12 +3326,15 @@ def spawn_emulation_container(topology_id: str, force_recreate: bool = False) ->
                         environment={
                             'TOPOLOGY_ID': topology_id,
                             'P4_STORAGE_ROOT': '/var/lib/caduceus/p4',
+                            **_emulation_wireless_env(),
                         },
                         detach=True,
                         remove=False,
                         privileged=True,
                         volumes={
-                            '/sys': {'bind': '/sys', 'mode': 'rw'},
+                            # '/sys' host bind kaldırıldı (SkyFabric): privileged
+                            # konteyner kendi netns sysfs'ini görür; host bind hwsim
+                            # radyolarını sysfs'ten gizleyip WiFi veri düzlemini kırıyordu.
                             '/lib/modules': {'bind': '/lib/modules', 'mode': 'ro'},
                             '/sys/kernel/debug': {'bind': '/sys/kernel/debug', 'mode': 'rw'},
                             '/var/run/netns': {'bind': '/var/run/netns', 'mode': 'rw'},
@@ -6075,7 +6103,7 @@ def _bootstrap_osm_shared_sdn_wims(topology_id: str, controllers_payload: Option
         return f"http://{cname}:{port}"
 
     connector_base = os.getenv("OSM_SHARED_CONNECTOR_BASE", "http://osm-connector-service:8020")
-    osm_network = os.getenv("DOCKER_NETWORK", "caduceus-flux_caduceus-network")
+    osm_network = os.getenv("DOCKER_NETWORK", MAIN_DOCKER_NETWORK)
 
     # Ensure controller containers are reachable from OSM network (shared OSM is on the main project network).
     for controller_id, ctrl in usable:
@@ -6400,7 +6428,7 @@ def ensure_topology_controllers(
                 pass
             return docker_client.containers.run(**run_kwargs)
 
-    main_network = "caduceus-flux_caduceus-network"
+    main_network = MAIN_DOCKER_NETWORK
     topo_network = _topo_network_name(topology_id)
     _ensure_network(topo_network)
 

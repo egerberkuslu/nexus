@@ -111,6 +111,20 @@ fi
 echo "Loading wireless kernel modules..."
 modprobe mac80211_hwsim radios=0 2>/dev/null || echo "mac80211_hwsim already loaded or not available"
 
+# Optional realistic wireless channel (wmediumd). Only reported when requested;
+# the emulation agent falls back to the ideal channel if anything is missing.
+case "${CADUCEUS_WMEDIUMD:-}" in
+    1|true|TRUE|True|yes|YES|on|ON|enable|enabled)
+        if command -v wmediumd >/dev/null 2>&1; then
+            echo "wmediumd requested and available at $(command -v wmediumd)"
+            echo "  noise_th=${CADUCEUS_NOISE_TH:--91}, logDistance exp=${CADUCEUS_PROP_EXP:-4.0}"
+        else
+            echo "WARNING: CADUCEUS_WMEDIUMD is set but the wmediumd binary is missing;"
+            echo "         the emulation will fall back to the ideal wireless channel."
+        fi
+        ;;
+esac
+
 # Disable hardware offloading for better compatibility
 ethtool -K eth0 tx off rx off 2>/dev/null || true
 

@@ -474,10 +474,11 @@ class gRPCClientManager:
             candidates: list[str] = []
             if container_name:
                 candidates.append(f"{container_name}:50051")
-            else:
-                if host_override:
-                    candidates.append(f"{host_override}:{default_port}")
-                candidates.append(f"localhost:{default_port}")
+            if host_override:
+                candidates.append(f"{host_override}:{default_port}")
+            # SkyFabric: always keep a host-published-port fallback so a wrong
+            # docker-network attachment does not strand the emu container.
+            candidates.append(f"localhost:{default_port}")
 
             last_error: Optional[Exception] = None
             for endpoint in candidates:

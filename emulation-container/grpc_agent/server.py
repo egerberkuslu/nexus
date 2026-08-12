@@ -421,6 +421,62 @@ class EmulationServiceImpl(emulation_pb2_grpc.EmulationServiceServicer):
             context.set_details(str(e))
             return emulation_pb2.ListDevicesResponse()
 
+    # Position Control (runtime mobility)
+    def SetPosition(self, request, context):
+        """Update the 3D position of a single station/access point"""
+        try:
+            result = self.device_handler.set_position(
+                device_name=request.device_name,
+                x=request.x,
+                y=request.y,
+                z=request.z
+            )
+            return emulation_pb2.SetPositionResponse(
+                success=True,
+                message=result['message'],
+                updated_count=1
+            )
+        except Exception as e:
+            logger.error(f"Failed to set position: {e}")
+            return emulation_pb2.SetPositionResponse(
+                success=False,
+                message=str(e),
+                updated_count=0
+            )
+
+    def SetPositionsBatch(self, request, context):
+        """Update several device positions in a single round trip.
+
+        Intended for an external physics engine pushing the whole fleet at ~10 Hz,
+        so one failing device must not abort the rest of the batch.
+        """
+        total = len(request.positions)
+        updated = 0
+        errors = []
+
+        for item in request.positions:
+            try:
+                self.device_handler.set_position(
+                    device_name=item.device_name,
+                    x=item.x,
+                    y=item.y,
+                    z=item.z
+                )
+                updated += 1
+            except Exception as e:
+                errors.append(f"{item.device_name}: {e}")
+
+        message = f"Updated {updated}/{total} device positions"
+        if errors:
+            logger.warning("SetPositionsBatch: %s (%s)", message, '; '.join(errors))
+            message = f"{message} ({'; '.join(errors)})"
+
+        return emulation_pb2.SetPositionResponse(
+            success=not errors,
+            message=message,
+            updated_count=updated
+        )
+
     # Link Management
     def AddLink(self, request, context):
         """Add a link between two devices"""

@@ -650,6 +650,60 @@ class DeviceHandler:
             logger.error(f"Failed to update device with ID {name}: {e}", exc_info=True)
             raise
 
+    def set_position(self, device_name, x, y, z):
+        """Move a station or access point at runtime.
+
+        Coordinates stay floating point end to end (mininet-wifi parses the
+        "x,y,z" string with float()), so an external physics engine such as
+        Gazebo can stream sub-metre updates at ~10 Hz without being quantised.
+        """
+        try:
+            if not self.emulation_manager.is_running():
+                raise RuntimeError("Emulation is not running")
+
+            # Callers may pass either the runtime Mininet name or the immutable
+            # device ID, so mirror the lookup used by update_device().
+            mininet_name = device_name if device_name in self.emulation_manager.devices else None
+            if mininet_name is None:
+                name_map = getattr(self.emulation_manager, 'node_id_to_name', None) or {}
+                mininet_name = name_map.get(device_name)
+
+            if not mininet_name or mininet_name not in self.emulation_manager.devices:
+                known = ', '.join(sorted(self.emulation_manager.devices.keys())) or '<none>'
+                raise ValueError(
+                    f"Device {device_name} not found in running emulation. Known devices: {known}"
+                )
+
+            device_info = self.emulation_manager.devices[mininet_name]
+            node = device_info['node']
+
+            if not hasattr(node, 'setPosition'):
+                raise ValueError(
+                    f"Device {mininet_name} (type={device_info.get('type')}) does not support "
+                    f"positioning; setPosition is only available on mininet-wifi nodes "
+                    f"such as stations and access points"
+                )
+
+            position = "%.3f,%.3f,%.3f" % (float(x), float(y), float(z))
+            node.setPosition(position)
+
+            # Keep tracked properties in sync so GetDevice/ListDevices report the move.
+            properties = device_info.setdefault('properties', {})
+            properties['position'] = position
+
+            logger.debug("Set position of %s to %s", mininet_name, position)
+
+            return {
+                'success': True,
+                'message': f"Position of {mininet_name} set to {position}",
+                'name': mininet_name,
+                'position': position
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to set position for {device_name}: {e}")
+            raise
+
     def get_device(self, name):
         """Get device information"""
         if name not in self.emulation_manager.devices:

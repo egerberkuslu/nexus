@@ -154,8 +154,8 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     ports:
-      - ${RABBITMQ_PORT:-5672}:5672
-      - ${RABBITMQ_MANAGEMENT_PORT:-15672}:15672
+      - ${RABBITMQ_PORT:-5682}:5672
+      - ${RABBITMQ_MANAGEMENT_PORT:-15682}:15672
     networks:
       - caduceus-network
     healthcheck:
@@ -315,6 +315,10 @@ services:
       - AUTO_APPLY_NETWORK_CONFIG=${AUTO_APPLY_NETWORK_CONFIG:-true}
       - STOP_EMULATIONS_ON_SHUTDOWN=${STOP_EMULATIONS_ON_SHUTDOWN:-false}
       - EMULATION_GRPC_HOST=${EMULATION_GRPC_HOST:-localhost}
+      # SkyFabric: pass wmediumd realism flags through to spawned emu containers
+      - CADUCEUS_WMEDIUMD=${CADUCEUS_WMEDIUMD:-}
+      - CADUCEUS_NOISE_TH=${CADUCEUS_NOISE_TH:-}
+      - CADUCEUS_PROP_EXP=${CADUCEUS_PROP_EXP:-}
       - EMULATION_GRPC_PORT=${EMULATION_GRPC_PORT:-50051}
       - P4_PROGRAMS_VOLUME=${P4_PROGRAMS_VOLUME:-caduceus-p4-programs}
       - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
@@ -1820,7 +1824,7 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.25.0.0/16
+        - subnet: 10.99.0.0/16
   hive-network:
     name: caduceus-hive-network
     driver: bridge
@@ -1829,7 +1833,7 @@ networks:
     internal: true
     ipam:
       config:
-        - subnet: 172.26.0.0/16
+        - subnet: 10.98.0.0/16
 volumes:
   postgres_data: null
   mongodb_data: null

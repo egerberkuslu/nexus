@@ -395,6 +395,23 @@ class DeviceHandler:
             if mobility and hasattr(mobility, 'model'):
                 self._configure_mobility(sta, mobility)
 
+            # SkyFabric: a live-added DockerSta needs an explicit link to its AP to
+            # trigger association (the build-time path does this via pending links;
+            # the live path previously added the station but never linked it, so it
+            # never associated). Link to the AP whose SSID matches.
+            if ssid:
+                try:
+                    for ap in list(getattr(net, "aps", []) or []):
+                        ap_ssid = ap.params.get("ssid") if hasattr(ap, "params") else None
+                        if isinstance(ap_ssid, (list, tuple)):
+                            ap_ssid = ap_ssid[0] if ap_ssid else None
+                        if ap_ssid == ssid:
+                            net.addLink(sta, ap)
+                            logger.info("Linked station %s to AP %s (ssid=%s)", name, ap.name, ssid)
+                            break
+                except Exception as exc:
+                    logger.warning("Failed to link station %s to its AP: %s", name, exc)
+
             # Store device reference
             self.emulation_manager.devices[name] = {
                 'type': 'station',

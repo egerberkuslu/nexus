@@ -314,7 +314,12 @@ class EmulationManager:
         kind_char = (kind or "d")[0].lower()
         topo_seed = self.topology_id or self.emulation_id or "caduceus"
         digest = hashlib.sha1(f"{topo_seed}:{original_name}:{kind_char}".encode()).hexdigest()[:9]
-        return f"{kind_char}{digest}"[:MININET_NAME_MAX_LEN]
+        # SkyFabric: wifi DockerSta names get a "-wlan0" suffix from mn-wifi; Linux
+        # IFNAMSIZ caps interface names at 15 chars, so keep wifi runtime names <=9
+        # (name+"-wlan0"=15). Otherwise the rename silently fails and the station
+        # never associates (interface stays "wlan1", qdisc noqueue).
+        cap = 9 if kind_char == "w" else MININET_NAME_MAX_LEN
+        return f"{kind_char}{digest}"[:cap]
 
     def _legacy_docker_runtime_names(self, original_name: str, kind: str = "d") -> list[str]:
         """Generate previous runtime-name variants for cleanup/backward compatibility."""
@@ -324,7 +329,8 @@ class EmulationManager:
         names: list[str] = []
         for attempt in range(0, 4):
             node_hash = hashlib.sha1(f"{base_seed}:{attempt}".encode()).hexdigest()[:5]
-            names.append(f"{kind_char}{topo_ns}{node_hash}"[:MININET_NAME_MAX_LEN])
+            legacy_cap = 9 if kind_char == "w" else MININET_NAME_MAX_LEN
+            names.append(f"{kind_char}{topo_ns}{node_hash}"[:legacy_cap])
         return names
 
     def _cleanup_docker_containers_for_topology(self, topology) -> None:
@@ -650,14 +656,21 @@ class EmulationManager:
                     from mn_wifi.wmediumdConnector import interference  # type: ignore
 
                     noise_th = _env_number("CADUCEUS_NOISE_TH", -91, int)
+                    # SkyFabric: optional log-normal shadowing (stochastic channel)
+                    # so repeated runs at the same position yield meaningful
+                    # variance/CI. 0 = deterministic logDistance (default).
+                    fading_cof = _env_number("CADUCEUS_FADING", 0.0, float)
                     net_kwargs = {
                         "link": wmediumd,
                         "wmediumd_mode": interference,
                         "noise_th": noise_th,
                     }
+                    if fading_cof > 0:
+                        net_kwargs["fading_cof"] = fading_cof
                     self.is_wmediumd_enabled = True
                     logger.info(
-                        "wmediumd enabled (mode=interference, noise_th=%s)", noise_th
+                        "wmediumd enabled (mode=interference, noise_th=%s, fading_cof=%s)",
+                        noise_th, fading_cof,
                     )
                 except ImportError as exc:
                     logger.warning(
@@ -872,10 +885,18 @@ class EmulationManager:
             return
 
         def _associated_to(sta):
+            # SkyFabric: mn-wifi sets intf.associatedTo optimistically BEFORE the
+            # `iw connect` actually succeeds, so it yields false positives ("All
+            # associated" when the station never connected). Check the real link
+            # state via `iw dev <if> link` instead.
             try:
                 intfs = getattr(sta, "wintfs", None) or []
                 if not intfs:
                     return None
+                ifname = getattr(intfs[0], "name", None)
+                if ifname:
+                    out = sta.cmd("iw dev %s link 2>/dev/null" % ifname)
+                    return True if "Connected to" in (out or "") else None
                 return getattr(intfs[0], "associatedTo", None)
             except Exception:
                 return None

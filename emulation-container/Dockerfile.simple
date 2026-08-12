@@ -47,7 +47,8 @@ RUN python3 -m pip install --upgrade pip && \
 
 # Create work directory and clone Mininet-WiFi
 WORKDIR /app/mininet-wifi
-RUN git clone https://github.com/intrig-unicamp/mininet-wifi.git .
+RUN git clone https://github.com/intrig-unicamp/mininet-wifi.git . && \
+    git checkout 0eb7d932db93485d46b9b41aa38d49d473ac5273  # SkyFabric pin (tekrarlanabilirlik)
 
 # Fix install script outdated dependencies
 # Replace specific package names, not all occurrences
@@ -68,7 +69,8 @@ RUN util/install.sh -Wlnfv
 
 # Clone Containernet with WiFi support (ramonfontes fork)
 WORKDIR /root
-RUN git clone https://github.com/ramonfontes/containernet.git
+RUN git clone https://github.com/ramonfontes/containernet.git && \
+    cd containernet && git checkout 6560585cd40c4a3f33ae8baabc302b08bc284a64  # SkyFabric pin
 
 # Install Containernet Python package directly (no ansible needed)
 WORKDIR /root/containernet

@@ -319,6 +319,7 @@ services:
       - CADUCEUS_WMEDIUMD=${CADUCEUS_WMEDIUMD:-}
       - CADUCEUS_NOISE_TH=${CADUCEUS_NOISE_TH:-}
       - CADUCEUS_PROP_EXP=${CADUCEUS_PROP_EXP:-}
+      - CADUCEUS_FADING=${CADUCEUS_FADING:-}
       # SkyFabric: extended deadlines so live DockerSta wifi VNFs (image pull +
       # wpa_supplicant association) do not hit the 15s station-add gRPC deadline
       - CADUCEUS_GRPC_RPC_TIMEOUT_SECONDS=${CADUCEUS_GRPC_RPC_TIMEOUT_SECONDS:-180}

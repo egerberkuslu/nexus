@@ -3223,6 +3223,7 @@ _EMULATION_WIRELESS_ENV_KEYS = (
     "CADUCEUS_WMEDIUMD",
     "CADUCEUS_NOISE_TH",
     "CADUCEUS_PROP_EXP",
+    "CADUCEUS_FADING",
     "CADUCEUS_WIFI_ASSOC_TIMEOUT",
     "CADUCEUS_WIFI_SETTLE_SECONDS",
     "CADUCEUS_WIFI_ADHOC_MERGE_SECONDS",
@@ -11875,6 +11876,14 @@ async def add_device_to_emulation(
             response = client.stub.AddAccessPoint(request, timeout=grpc_rpc_timeout_s)
 
         elif device_type.lower() == 'station':
+            # SkyFabric: mn-wifi appends "-wlan0" to a station's node name, and Linux
+            # IFNAMSIZ caps interface names at 15 chars, so a wifi station runtime name
+            # must be <=9. The build-time path already caps via _allocate_docker_runtime_name;
+            # a live-added (not pre-registered) VNF can arrive here with a longer sanitized
+            # or dedup-suffixed name, so re-derive a deterministic <=9 char name in that case.
+            if len(runtime_name) > 9:
+                seed = node_id_value or device_name or runtime_name
+                runtime_name = 'w' + hashlib.sha1(seed.encode()).hexdigest()[:8]
             request = emulation_pb2.AddStationRequest(
                 name=runtime_name,
                 ssid=device_properties.get('ssid', ''),

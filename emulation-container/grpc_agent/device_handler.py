@@ -395,22 +395,47 @@ class DeviceHandler:
             if mobility and hasattr(mobility, 'model'):
                 self._configure_mobility(sta, mobility)
 
-            # SkyFabric: a live-added DockerSta needs an explicit link to its AP to
-            # trigger association (the build-time path does this via pending links;
-            # the live path previously added the station but never linked it, so it
-            # never associated). Link to the AP whose SSID matches.
+            # SkyFabric: a live-added station never went through
+            # configureWifiNodes()/associate() (that only runs at build time), so it
+            # creates its <name>-wlan0 radio but stays unassociated ("Not connected",
+            # qdisc noqueue). Force the association the same way mn-wifi does at build
+            # time via Station.setAssociation(ap); fall back to a raw `iw connect` for
+            # open networks. This is the platform-native association step, not
+            # experiment-level glue.
             if ssid:
                 try:
+                    target_ap = None
                     for ap in list(getattr(net, "aps", []) or []):
                         ap_ssid = ap.params.get("ssid") if hasattr(ap, "params") else None
                         if isinstance(ap_ssid, (list, tuple)):
                             ap_ssid = ap_ssid[0] if ap_ssid else None
                         if ap_ssid == ssid:
-                            net.addLink(sta, ap)
-                            logger.info("Linked station %s to AP %s (ssid=%s)", name, ap.name, ssid)
+                            target_ap = ap
                             break
+                    if target_ap is not None:
+                        wintf_name = None
+                        try:
+                            wintfs = getattr(sta, "wintfs", None) or []
+                            if wintfs:
+                                wintf_name = getattr(wintfs[0], "name", None)
+                        except Exception:
+                            wintf_name = None
+                        try:
+                            sta.setAssociation(target_ap)
+                            logger.info("Associated station %s to AP %s (ssid=%s)", name, target_ap.name, ssid)
+                        except Exception as exc:
+                            logger.warning("setAssociation failed for %s: %s; trying raw iw connect", name, exc)
+                        # Verify + open-network fallback: if still not linked, issue a
+                        # direct `iw connect` (works for open APs).
+                        if wintf_name:
+                            link = sta.cmd("iw dev %s link 2>/dev/null" % wintf_name) or ""
+                            if "Connected to" not in link:
+                                sta.cmd("iw dev %s connect %s 2>/dev/null" % (wintf_name, ssid))
+                                logger.info("Issued iw connect for station %s on %s", name, wintf_name)
+                    else:
+                        logger.warning("No AP found with ssid=%s for station %s", ssid, name)
                 except Exception as exc:
-                    logger.warning("Failed to link station %s to its AP: %s", name, exc)
+                    logger.warning("Failed to associate station %s to its AP: %s", name, exc)
 
             # Store device reference
             self.emulation_manager.devices[name] = {

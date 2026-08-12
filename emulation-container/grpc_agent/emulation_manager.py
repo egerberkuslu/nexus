@@ -723,6 +723,19 @@ class EmulationManager:
             # Configure WiFi if enabled
             if self.is_wifi_enabled:
                 logger.info("Configuring WiFi network...")
+                # SkyFabric fix: mac80211_hwsim radios are created soft-rfkilled in
+                # this netns (inherited from the container's blocked bluetooth phy),
+                # so hostapd fails with "Operation not possible due to RF-kill" and
+                # the AP never enters AP mode (stays type managed, txpower 0). Clear
+                # rfkill BEFORE configureWifiNodes() -- that call both creates the
+                # phys and launches hostapd, so the unblock must precede it.
+                try:
+                    import subprocess as _sp
+                    _sp.run(["rfkill", "unblock", "all"], check=False,
+                            stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+                    logger.info("Cleared rfkill soft-block on wireless phys (rfkill unblock all)")
+                except Exception as _rf_exc:
+                    logger.warning("rfkill unblock failed (hostapd may not start): %s", _rf_exc)
                 prop_exp = _env_number("CADUCEUS_PROP_EXP", 4.0, float)
                 try:
                     if self.is_wmediumd_enabled:
@@ -766,7 +779,18 @@ class EmulationManager:
                 self._add_controller(controller)
 
             self.net.start()
-            
+
+            # SkyFabric/AeroWeave parity: explicitly (re)start each mn-wifi AP after
+            # net.start(). net.start() normally starts the AP OVS datapath, but doing
+            # it explicitly matches the known-good AeroWeave sequence and is idempotent
+            # (a second start on an already-running AP is a no-op), so wrap in try/except.
+            if self.is_wifi_enabled:
+                for _ap in getattr(self.net, "aps", []):
+                    try:
+                        _ap.start([])
+                    except Exception as _ap_exc:
+                        logger.debug("ap.start([]) for %s: %s", getattr(_ap, "name", _ap), _ap_exc)
+
             # Post-start WiFi configuration
             if self.is_wifi_enabled:
                 logger.info("Applying post-start WiFi configuration...")

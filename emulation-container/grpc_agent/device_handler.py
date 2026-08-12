@@ -259,6 +259,18 @@ class DeviceHandler:
                 'channel': channel or '1'
             }
 
+            # SkyFabric/AeroWeave parity: without an OpenFlow controller an mn-wifi
+            # OVS access point defaults to failMode 'secure' and drops all data-plane
+            # traffic until a controller connects. Emulation topologies here are
+            # controller-less, so pin failMode='standalone' (unless the caller
+            # explicitly overrides it) so the AP bridge forwards traffic on its own.
+            if not params.get('failMode') and not params.get('fail_mode'):
+                ap_kwargs['failMode'] = 'standalone'
+            elif params.get('failMode'):
+                ap_kwargs['failMode'] = params.get('failMode')
+            elif params.get('fail_mode'):
+                ap_kwargs['failMode'] = params.get('fail_mode')
+
             if security and security != 'open' and password:
                 ap_kwargs['encrypt'] = security
                 ap_kwargs['passwd'] = password

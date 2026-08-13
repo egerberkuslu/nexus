@@ -628,6 +628,9 @@ services:
       - 8012:8012
     networks:
       - caduceus-network
+    extra_hosts:
+      # SkyFabric: reach the host-side Physics/co-sim service for /api/physics/* proxy
+      - "host.docker.internal:host-gateway"
     depends_on:
       - rabbitmq
       - consul

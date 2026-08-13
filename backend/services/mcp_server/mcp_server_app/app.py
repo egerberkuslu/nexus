@@ -91,6 +91,10 @@ class ServiceRegistry:
             'osm-connector': {'port': 8020, 'prefix': '/api'},
             'mcp-tool-hub': {'port': 8018, 'prefix': '/api'},
             'decision-engine': {'port': 8017, 'prefix': '/api'},
+            # SkyFabric Physics/co-sim service runs on the host (AeroWeave bridge);
+            # expose it through the gateway so /api/physics/* is part of Nexus.
+            'physics': {'port': int(os.getenv("PHYSICS_PORT", "8030")), 'prefix': '/api',
+                        'host': os.getenv("PHYSICS_HOST", "host.docker.internal")},
             'vimemu': {'port': 6001, 'prefix': '/', 'host': os.getenv("VIMEMU_HOST", "vimemu-service")},
             # Self entry to expose full control-plane inventory via /api/services.
             'mcp-server': {'port': 8012, 'prefix': '/api', 'host': os.getenv("MCP_SERVER_HOST", "mcp-server")},

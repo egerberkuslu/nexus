@@ -624,15 +624,16 @@ class DecisionEngine:
                 if not topology_id or not device:
                     continue
                 rssi = _safe_float(features.get("rssi_dbm"))
+                # cache is scoped PER TOPOLOGY so workers of one emulation never
+                # pollute another's routing decision.
                 if not hasattr(self, "_link_rssi"):
                     self._link_rssi = {}
+                topo_links = self._link_rssi.setdefault(topology_id, {})
                 if rssi is not None:
-                    self._link_rssi[device] = rssi
-                if not self._link_rssi:
+                    topo_links[device] = rssi
+                if not topo_links:
                     continue
-                ranked = sorted(
-                    self._link_rssi.items(), key=lambda kv: kv[1], reverse=True
-                )
+                ranked = sorted(topo_links.items(), key=lambda kv: kv[1], reverse=True)
                 best_dev, best_rssi = ranked[0]
                 payload = {
                     "timestamp": _now_iso(),

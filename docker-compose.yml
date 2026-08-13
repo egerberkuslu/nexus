@@ -637,6 +637,21 @@ services:
       - topology-service
       - orchestrator-service
     restart: unless-stopped
+  # Legacy :5000 compatibility layer for older frontend panels (StorageManager,
+  # Snapshots, NetworkConfigurationManager, TopologyBuilder, LLM) that still call
+  # the monolith-era http://localhost:5000/api/* endpoints. Maps them to the
+  # microservices / graceful defaults, with CORS. No frontend rebuild needed.
+  legacy-compat-service:
+    image: python:3.11-slim
+    container_name: caduceus-legacy-compat
+    command: python /app/compat.py
+    volumes:
+      - ./backend/services/legacy_compat/compat.py:/app/compat.py:ro
+    ports:
+      - 5000:5000
+    networks:
+      - caduceus-network
+    restart: unless-stopped
   metrics-collector-service:
     build:
       context: ./backend

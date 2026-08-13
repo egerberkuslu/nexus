@@ -60,7 +60,9 @@ class ChatRequest(BaseModel):
     model: str
     prompt: Optional[str] = None
     messages: Optional[List[ChatMessage]] = None
-    api_key: Optional[str] = Field(default=None, description="Provider API key (not stored)")
+    api_key: Optional[str] = Field(
+        default=None, description="Provider API key (not stored)"
+    )
     temperature: Optional[float] = 0.2
     max_tokens: Optional[int] = 1024
 
@@ -319,22 +321,30 @@ def _env(name: str, default: str) -> str:
 
 OPENAI_BASE_URL = _env("OPENAI_BASE_URL", "https://api.openai.com/v1")
 ANTHROPIC_BASE_URL = _env("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1")
-GEMINI_BASE_URL = _env("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
+GEMINI_BASE_URL = _env(
+    "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"
+)
 OLLAMA_BASE_URL = _env("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
 MCP_SERVER_URL = _env("MCP_SERVER_URL", "http://mcp-server:8012")
 MCP_FALLBACK_GATEWAY_URL = _env("MCP_FALLBACK_GATEWAY_URL", "http://nginx")
 
 GEMINI_MAX_RETRIES = int(os.getenv("GEMINI_MAX_RETRIES", "2"))
 GEMINI_RETRY_BACKOFF_SECONDS = float(os.getenv("GEMINI_RETRY_BACKOFF_SECONDS", "2"))
-GEMINI_MAX_RETRY_DELAY_SECONDS = float(os.getenv("GEMINI_MAX_RETRY_DELAY_SECONDS", "30"))
+GEMINI_MAX_RETRY_DELAY_SECONDS = float(
+    os.getenv("GEMINI_MAX_RETRY_DELAY_SECONDS", "30")
+)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-AI_GATEWAY_HTTP_CONNECT_TIMEOUT = float(os.getenv("AI_GATEWAY_HTTP_CONNECT_TIMEOUT", "10.0"))
+AI_GATEWAY_HTTP_CONNECT_TIMEOUT = float(
+    os.getenv("AI_GATEWAY_HTTP_CONNECT_TIMEOUT", "10.0")
+)
 AI_GATEWAY_HTTP_READ_TIMEOUT = float(os.getenv("AI_GATEWAY_HTTP_READ_TIMEOUT", "180.0"))
-AI_GATEWAY_HTTP_WRITE_TIMEOUT = float(os.getenv("AI_GATEWAY_HTTP_WRITE_TIMEOUT", "60.0"))
+AI_GATEWAY_HTTP_WRITE_TIMEOUT = float(
+    os.getenv("AI_GATEWAY_HTTP_WRITE_TIMEOUT", "60.0")
+)
 AI_GATEWAY_HTTP_POOL_TIMEOUT = float(os.getenv("AI_GATEWAY_HTTP_POOL_TIMEOUT", "10.0"))
 
 http_client = httpx.AsyncClient(
@@ -344,7 +354,9 @@ http_client = httpx.AsyncClient(
         write=AI_GATEWAY_HTTP_WRITE_TIMEOUT,
         pool=AI_GATEWAY_HTTP_POOL_TIMEOUT,
     ),
-    limits=httpx.Limits(max_connections=100, max_keepalive_connections=20, keepalive_expiry=30.0),
+    limits=httpx.Limits(
+        max_connections=100, max_keepalive_connections=20, keepalive_expiry=30.0
+    ),
 )
 
 
@@ -362,22 +374,31 @@ async def _safe_http_request(
     attempts = max(1, int(attempts))
     for i in range(attempts):
         try:
-            return await http_client.request(method=method, url=url, params=params, headers=headers, json=json_body)
+            return await http_client.request(
+                method=method, url=url, params=params, headers=headers, json=json_body
+            )
         except httpx.RequestError as exc:
             last_exc = exc
             if i < attempts - 1:
                 await asyncio.sleep(0.25 * (i + 1))
                 continue
             logger.warning("%s network error for %s %s: %s", label, method, url, exc)
-            raise HTTPException(status_code=502, detail=f"{label} network error: {exc}") from exc
+            raise HTTPException(
+                status_code=502, detail=f"{label} network error: {exc}"
+            ) from exc
         except Exception as exc:
             last_exc = exc
             logger.warning("%s unexpected error for %s %s: %s", label, method, url, exc)
             raise
     raise HTTPException(status_code=502, detail=f"{label} request failed: {last_exc}")
 
+
 def _fernet() -> Fernet:
-    seed = os.getenv("AI_CREDENTIALS_ENCRYPTION_KEY") or os.getenv("JWT_SECRET_KEY") or "changeme_ai_gateway_key"
+    seed = (
+        os.getenv("AI_CREDENTIALS_ENCRYPTION_KEY")
+        or os.getenv("JWT_SECRET_KEY")
+        or "changeme_ai_gateway_key"
+    )
     key = base64.urlsafe_b64encode(hashlib.sha256(seed.encode("utf-8")).digest())
     return Fernet(key)
 
@@ -390,7 +411,9 @@ def _decrypt_api_key(value: str) -> str:
     try:
         return _fernet().decrypt(value.encode("utf-8")).decode("utf-8")
     except InvalidToken as e:
-        raise HTTPException(status_code=500, detail=f"Stored credential cannot be decrypted: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Stored credential cannot be decrypted: {e}"
+        )
 
 
 def _get_or_create_provider_config(db: Session, provider: Provider) -> AIProviderConfig:
@@ -413,7 +436,9 @@ def _get_stored_api_key(db: Session, provider: Provider) -> Optional[str]:
     return _decrypt_api_key(row.api_key_encrypted)
 
 
-def _resolve_api_key(db: Session, provider: Provider, provided: Optional[str]) -> Optional[str]:
+def _resolve_api_key(
+    db: Session, provider: Provider, provided: Optional[str]
+) -> Optional[str]:
     if provided:
         return provided
     stored = _get_stored_api_key(db, provider)
@@ -671,10 +696,40 @@ def _builtin_ml_models() -> List[Dict[str, Any]]:
             "algorithm": "noop",
             "description": "Produces no MANO actions (safe default).",
         },
+        {
+            "id": "ml_builtin_mano_proact",
+            "task": "mano_policy",
+            "name": "SwarmInfer: CHA-S + ProAct (predictive)",
+            "framework": "builtin",
+            "algorithm": "proact",
+            "description": "Paper A CHA-S demand forecast + Paper B ProAct confidence-aware predictive autoscaler. Consumed by the host-side strategic controller to drive VNFM warm-pool scaling (actions.mano{scale}).",
+        },
+        {
+            "id": "ml_builtin_mano_reactive",
+            "task": "mano_policy",
+            "name": "SwarmInfer: Reactive HPA (baseline)",
+            "framework": "builtin",
+            "algorithm": "reactive",
+            "description": "Threshold HPA on current demand (the -B ablation arm); reactive baseline for the ProAct comparison.",
+        },
+        {
+            "id": "ml_builtin_routing_fd_dsp",
+            "task": "routing_policy",
+            "name": "SwarmInfer: FD-DSP placement",
+            "framework": "builtin",
+            "algorithm": "fd_dsp",
+            "description": "Paper C forecast-driven, demand + link-quality-aware shard placement/routing (CLAIM/RELEASE). Fills the Decision Engine routing seam.",
+        },
     ]
 
 
 def _ensure_builtin_ml_models(db: Session) -> None:
+    # The assignment table is keyed by `task` (one active model per task), so a
+    # task with multiple builtins (e.g. mano_policy: noop/proact/reactive) must
+    # seed at most ONE default assignment. Track tasks handled in this pass so a
+    # pending (not-yet-flushed) add is not duplicated -> avoids a UniqueViolation
+    # on ml_model_assignment_pkey that would roll back the whole seed.
+    assigned_defaults: set[str] = set()
     for row in _builtin_ml_models():
         model = db.get(MLModel, row["id"])
         payload = {
@@ -700,10 +755,17 @@ def _ensure_builtin_ml_models(db: Session) -> None:
             for k, v in payload.items():
                 setattr(model, k, v)
 
-        # Ensure a default assignment exists for each task (idempotent).
+        # Ensure a default assignment exists for each task (idempotent). Only the
+        # FIRST builtin listed per task seeds the default (noop stays the safe
+        # default); later builtins for the same task are selectable but not forced.
         task = str(row["task"])
-        if not db.get(MLModelAssignment, task):
-            db.add(MLModelAssignment(task=task, model_id=str(row["id"]), updated_at=datetime.utcnow()))
+        if task not in assigned_defaults and not db.get(MLModelAssignment, task):
+            db.add(
+                MLModelAssignment(
+                    task=task, model_id=str(row["id"]), updated_at=datetime.utcnow()
+                )
+            )
+        assigned_defaults.add(task)
 
 
 @app.get("/health")
@@ -730,7 +792,9 @@ async def list_models(provider: Provider):
             r = await http_client.get(f"{OLLAMA_BASE_URL}/api/tags")
             r.raise_for_status()
             payload = r.json()
-            models = [m.get("name") for m in (payload.get("models") or []) if m.get("name")]
+            models = [
+                m.get("name") for m in (payload.get("models") or []) if m.get("name")
+            ]
             return {"provider": provider, "models": models or DEFAULT_MODELS["ollama"]}
         except Exception:
             return {"provider": provider, "models": DEFAULT_MODELS["ollama"]}
@@ -766,7 +830,9 @@ class UpdateDefaultModelRequest(BaseModel):
 
 
 @app.put("/api/ai/settings/default-model")
-async def set_default_model(body: UpdateDefaultModelRequest, db: Session = Depends(get_db)):
+async def set_default_model(
+    body: UpdateDefaultModelRequest, db: Session = Depends(get_db)
+):
     row = _get_or_create_provider_config(db, body.provider)
     row.default_model = body.default_model
     db.add(row)
@@ -775,9 +841,13 @@ async def set_default_model(body: UpdateDefaultModelRequest, db: Session = Depen
 
 
 @app.put("/api/ai/credentials")
-async def set_provider_credential(body: SetProviderCredentialRequest, db: Session = Depends(get_db)):
+async def set_provider_credential(
+    body: SetProviderCredentialRequest, db: Session = Depends(get_db)
+):
     if body.provider == "ollama":
-        raise HTTPException(status_code=400, detail="Ollama does not require an API key")
+        raise HTTPException(
+            status_code=400, detail="Ollama does not require an API key"
+        )
     if not body.api_key.strip():
         raise HTTPException(status_code=400, detail="api_key is required")
     row = _get_or_create_provider_config(db, body.provider)
@@ -790,7 +860,9 @@ async def set_provider_credential(body: SetProviderCredentialRequest, db: Sessio
 @app.delete("/api/ai/credentials")
 async def clear_provider_credential(provider: Provider, db: Session = Depends(get_db)):
     if provider == "ollama":
-        raise HTTPException(status_code=400, detail="Ollama does not require an API key")
+        raise HTTPException(
+            status_code=400, detail="Ollama does not require an API key"
+        )
     row = _get_or_create_provider_config(db, provider)
     row.api_key_encrypted = None
     db.add(row)
@@ -812,7 +884,9 @@ ALLOWED_MODEL_EXTS: set[str] = {".onnx", ".pt", ".pth"}
 
 
 def _ml_models_storage_root() -> str:
-    root = (os.getenv("ML_MODELS_STORAGE_ROOT") or "/var/lib/caduceus/ml_models").strip()
+    root = (
+        os.getenv("ML_MODELS_STORAGE_ROOT") or "/var/lib/caduceus/ml_models"
+    ).strip()
     if not root:
         root = "/var/lib/caduceus/ml_models"
     os.makedirs(root, exist_ok=True)
@@ -822,7 +896,7 @@ def _ml_models_storage_root() -> str:
 def _safe_filename(name: str) -> str:
     base = os.path.basename(str(name or ""))
     base = re.sub(r"[^a-zA-Z0-9._-]+", "-", base).strip("-")
-    return (base[:128] if base else "model.bin")
+    return base[:128] if base else "model.bin"
 
 
 def _maybe_json_dict(raw: Optional[str], *, label: str) -> dict[str, Any]:
@@ -834,7 +908,9 @@ def _maybe_json_dict(raw: Optional[str], *, label: str) -> dict[str, Any]:
     try:
         parsed = json.loads(text)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid {label} JSON: {exc}") from exc
+        raise HTTPException(
+            status_code=400, detail=f"Invalid {label} JSON: {exc}"
+        ) from exc
     if not isinstance(parsed, dict):
         raise HTTPException(status_code=400, detail=f"{label} must be a JSON object")
     return parsed
@@ -946,13 +1022,17 @@ async def get_ml_model_assignments(db: Session = Depends(get_db)):
 
     return MLModelAssignmentsResponse(
         tasks=list(KNOWN_ML_TASKS),
-        assignments=[MLModelAssignmentInfo(task=a.task, model_id=a.model_id) for a in assigns],
+        assignments=[
+            MLModelAssignmentInfo(task=a.task, model_id=a.model_id) for a in assigns
+        ],
         models_by_id=models_payload,
     )
 
 
 @app.put("/api/ai/ml/assignments")
-async def set_ml_model_assignment(body: SetMLModelAssignmentRequest, db: Session = Depends(get_db)):
+async def set_ml_model_assignment(
+    body: SetMLModelAssignmentRequest, db: Session = Depends(get_db)
+):
     task = str(body.task or "").strip()
     if not task:
         raise HTTPException(status_code=400, detail="task is required")
@@ -964,11 +1044,16 @@ async def set_ml_model_assignment(body: SetMLModelAssignmentRequest, db: Session
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
     if str(model.task) != task:
-        raise HTTPException(status_code=400, detail=f"Model task mismatch: model.task={model.task} but requested task={task}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model task mismatch: model.task={model.task} but requested task={task}",
+        )
 
     row = db.get(MLModelAssignment, task)
     if not row:
-        row = MLModelAssignment(task=task, model_id=model_id, updated_at=datetime.utcnow())
+        row = MLModelAssignment(
+            task=task, model_id=model_id, updated_at=datetime.utcnow()
+        )
         db.add(row)
     else:
         row.model_id = model_id
@@ -1008,11 +1093,15 @@ async def download_ml_model_artifact(model_id: str, db: Session = Depends(get_db
     if not row:
         raise HTTPException(status_code=404, detail="Model not found")
     if not row.artifact_path or not row.artifact_filename:
-        raise HTTPException(status_code=404, detail="Model has no artifact (builtin or missing file)")
+        raise HTTPException(
+            status_code=404, detail="Model has no artifact (builtin or missing file)"
+        )
     path = str(row.artifact_path)
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="Artifact file not found on disk")
-    return FileResponse(path, filename=row.artifact_filename, media_type="application/octet-stream")
+    return FileResponse(
+        path, filename=row.artifact_filename, media_type="application/octet-stream"
+    )
 
 
 @app.post("/api/ai/ml/models/upload", response_model=MLModelInfo)
@@ -1033,13 +1122,22 @@ async def upload_ml_model(
     if not task:
         raise HTTPException(status_code=400, detail="task is required")
     if task not in KNOWN_ML_TASKS:
-        raise HTTPException(status_code=400, detail=f"Unknown task '{task}'. Known: {', '.join(KNOWN_ML_TASKS)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown task '{task}'. Known: {', '.join(KNOWN_ML_TASKS)}",
+        )
 
     framework = str(framework or "").strip().lower() or "onnx"
     if framework not in ALLOWED_MODEL_FRAMEWORKS:
-        raise HTTPException(status_code=400, detail=f"Unsupported framework '{framework}'. Supported: {', '.join(sorted(ALLOWED_MODEL_FRAMEWORKS))}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported framework '{framework}'. Supported: {', '.join(sorted(ALLOWED_MODEL_FRAMEWORKS))}",
+        )
     if framework == "builtin":
-        raise HTTPException(status_code=400, detail="Use builtin models via seeding/registration; upload requires a file-backed framework")
+        raise HTTPException(
+            status_code=400,
+            detail="Use builtin models via seeding/registration; upload requires a file-backed framework",
+        )
 
     if not name or not str(name).strip():
         raise HTTPException(status_code=400, detail="name is required")
@@ -1049,7 +1147,10 @@ async def upload_ml_model(
     _, ext = os.path.splitext(safe_name)
     ext = ext.lower()
     if ext not in ALLOWED_MODEL_EXTS:
-        raise HTTPException(status_code=400, detail=f"Unsupported file extension '{ext}'. Allowed: {', '.join(sorted(ALLOWED_MODEL_EXTS))}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file extension '{ext}'. Allowed: {', '.join(sorted(ALLOWED_MODEL_EXTS))}",
+        )
 
     input_schema = _maybe_json_dict(input_schema_json, label="input_schema_json")
     output_schema = _maybe_json_dict(output_schema_json, label="output_schema_json")
@@ -1078,7 +1179,9 @@ async def upload_ml_model(
                 os.remove(artifact_path)
         except Exception:
             pass
-        raise HTTPException(status_code=500, detail=f"Failed to store artifact: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"Failed to store artifact: {exc}"
+        ) from exc
 
     row = MLModel(
         id=model_id,
@@ -1130,9 +1233,16 @@ async def delete_ml_model(model_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Builtin models cannot be deleted")
 
     # Block delete if currently assigned.
-    assigned = db.query(MLModelAssignment).filter(MLModelAssignment.model_id == model_id).count()
+    assigned = (
+        db.query(MLModelAssignment)
+        .filter(MLModelAssignment.model_id == model_id)
+        .count()
+    )
     if assigned:
-        raise HTTPException(status_code=409, detail="Model is active for at least one task; reassign before deleting")
+        raise HTTPException(
+            status_code=409,
+            detail="Model is active for at least one task; reassign before deleting",
+        )
 
     artifact_path = str(row.artifact_path or "")
     artifact_dir = os.path.dirname(artifact_path) if artifact_path else ""
@@ -1147,7 +1257,11 @@ async def delete_ml_model(model_id: str, db: Session = Depends(get_db)):
         pass
     try:
         root = _ml_models_storage_root()
-        if artifact_dir and os.path.isdir(artifact_dir) and os.path.commonpath([root, artifact_dir]) == root:
+        if (
+            artifact_dir
+            and os.path.isdir(artifact_dir)
+            and os.path.commonpath([root, artifact_dir]) == root
+        ):
             # remove directory if empty
             if not os.listdir(artifact_dir):
                 os.rmdir(artifact_dir)
@@ -1161,7 +1275,9 @@ def _normalize_messages(req: ChatRequest) -> List[ChatMessage]:
     if req.messages and len(req.messages) > 0:
         return req.messages
     if req.prompt is None:
-        raise HTTPException(status_code=400, detail="Either 'prompt' or 'messages' is required")
+        raise HTTPException(
+            status_code=400, detail="Either 'prompt' or 'messages' is required"
+        )
     return [ChatMessage(role="user", content=req.prompt)]
 
 
@@ -1182,11 +1298,12 @@ async def _chat_openai(req: ChatRequest) -> ChatResponse:
     if r.status_code >= 400:
         raise HTTPException(status_code=r.status_code, detail=r.text)
     raw = r.json()
-    content = (
-        (((raw.get("choices") or [None])[0] or {}).get("message") or {}).get("content")
-        or ""
+    content = (((raw.get("choices") or [None])[0] or {}).get("message") or {}).get(
+        "content"
+    ) or ""
+    return ChatResponse(
+        provider=req.provider, model=req.model, content=content, raw=raw
     )
-    return ChatResponse(provider=req.provider, model=req.model, content=content, raw=raw)
 
 
 async def _chat_anthropic(req: ChatRequest) -> ChatResponse:
@@ -1221,7 +1338,9 @@ async def _chat_anthropic(req: ChatRequest) -> ChatResponse:
     content = ""
     if isinstance(content_parts, list) and content_parts:
         content = (content_parts[0] or {}).get("text") or ""
-    return ChatResponse(provider=req.provider, model=req.model, content=content, raw=raw)
+    return ChatResponse(
+        provider=req.provider, model=req.model, content=content, raw=raw
+    )
 
 
 async def _chat_gemini(req: ChatRequest) -> ChatResponse:
@@ -1232,13 +1351,16 @@ async def _chat_gemini(req: ChatRequest) -> ChatResponse:
     contents = []
     for m in messages:
         if m.role == "system":
-            contents.append({"role": "user", "parts": [{"text": f"[system]\n{m.content}"}]})
+            contents.append(
+                {"role": "user", "parts": [{"text": f"[system]\n{m.content}"}]}
+            )
         elif m.role == "assistant":
             contents.append({"role": "model", "parts": [{"text": m.content}]})
         else:
             contents.append({"role": "user", "parts": [{"text": m.content}]})
 
     url = f"{GEMINI_BASE_URL}/models/{req.model}:generateContent"
+
     def _retry_delay_seconds(resp: httpx.Response) -> Optional[float]:
         retry_after = resp.headers.get("retry-after")
         if retry_after:
@@ -1251,7 +1373,7 @@ async def _chat_gemini(req: ChatRequest) -> ChatResponse:
         except Exception:
             payload = None
         if isinstance(payload, dict):
-            msg = ((payload.get("error") or {}).get("message") or "")
+            msg = (payload.get("error") or {}).get("message") or ""
             match = re.search(r"retry in ([0-9.]+)s", msg)
             if match:
                 try:
@@ -1259,7 +1381,9 @@ async def _chat_gemini(req: ChatRequest) -> ChatResponse:
                 except ValueError:
                     pass
             for detail in (payload.get("error") or {}).get("details") or []:
-                if isinstance(detail, dict) and detail.get("@type", "").endswith("RetryInfo"):
+                if isinstance(detail, dict) and detail.get("@type", "").endswith(
+                    "RetryInfo"
+                ):
                     delay = detail.get("retryDelay") or ""
                     if isinstance(delay, str) and delay.endswith("s"):
                         try:
@@ -1270,7 +1394,9 @@ async def _chat_gemini(req: ChatRequest) -> ChatResponse:
 
     r: httpx.Response
     for attempt in range(GEMINI_MAX_RETRIES + 1):
-        r = await http_client.post(url, params={"key": req.api_key}, json={"contents": contents})
+        r = await http_client.post(
+            url, params={"key": req.api_key}, json={"contents": contents}
+        )
         if r.status_code != 429 or attempt >= GEMINI_MAX_RETRIES:
             break
         delay = _retry_delay_seconds(r)
@@ -1282,12 +1408,14 @@ async def _chat_gemini(req: ChatRequest) -> ChatResponse:
     if r.status_code >= 400:
         raise HTTPException(status_code=r.status_code, detail=r.text)
     raw = r.json()
-    candidate = ((raw.get("candidates") or [None])[0] or {})
-    parts = (((candidate.get("content") or {}).get("parts") or []) or [])
+    candidate = (raw.get("candidates") or [None])[0] or {}
+    parts = ((candidate.get("content") or {}).get("parts") or []) or []
     content = ""
     if parts:
         content = (parts[0] or {}).get("text") or ""
-    return ChatResponse(provider=req.provider, model=req.model, content=content, raw=raw)
+    return ChatResponse(
+        provider=req.provider, model=req.model, content=content, raw=raw
+    )
 
 
 async def _chat_ollama(req: ChatRequest) -> ChatResponse:
@@ -1303,7 +1431,10 @@ async def _chat_ollama(req: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=r.status_code, detail=r.text)
     raw = r.json()
     content = ((raw.get("message") or {}).get("content")) or ""
-    return ChatResponse(provider=req.provider, model=req.model, content=content, raw=raw)
+    return ChatResponse(
+        provider=req.provider, model=req.model, content=content, raw=raw
+    )
+
 
 async def _chat_dispatch(req: ChatRequest) -> ChatResponse:
     if req.provider == "openai":
@@ -1321,7 +1452,10 @@ async def _chat_dispatch(req: ChatRequest) -> ChatResponse:
 async def chat(req: ChatRequest, request: Request, db: Session = Depends(get_db)):
     req.api_key = _resolve_api_key(db, req.provider, req.api_key)
     if req.provider in ("openai", "anthropic", "gemini") and not req.api_key:
-        raise HTTPException(status_code=400, detail=f"{req.provider} is not configured. Set API key in AI Settings.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"{req.provider} is not configured. Set API key in AI Settings.",
+        )
     return await _chat_dispatch(req)
 
 
@@ -1363,6 +1497,7 @@ def _extract_json_object(text: str) -> Dict[str, Any]:
         raise ValueError("No complete JSON object found in output")
     return json.loads(text[start : end + 1])
 
+
 _TOON_KV_RE = re.compile(r"^([^=:\s]+)\s*(=|:)\s*(.+)$")
 
 
@@ -1382,7 +1517,9 @@ def _parse_toon_value(raw: str) -> Any:
         return int(raw)
     except Exception:
         pass
-    if (raw.startswith("{") and raw.endswith("}")) or (raw.startswith("[") and raw.endswith("]")):
+    if (raw.startswith("{") and raw.endswith("}")) or (
+        raw.startswith("[") and raw.endswith("]")
+    ):
         try:
             return json.loads(raw)
         except Exception:
@@ -1423,9 +1560,11 @@ def _format_toon_value(value: Any) -> str:
     if isinstance(value, (dict, list)):
         return json.dumps(value, separators=(",", ":"))
     text = str(value)
-    if any(ch.isspace() for ch in text) or any(ch in text for ch in ['"', "'", "=", ":"]):
+    if any(ch.isspace() for ch in text) or any(
+        ch in text for ch in ['"', "'", "=", ":"]
+    ):
         escaped = text.replace("\\", "\\\\").replace('"', '\\"')
-        return f"\"{escaped}\""
+        return f'"{escaped}"'
     return text
 
 
@@ -1460,20 +1599,30 @@ def request_to_toon(req: MCPRequest) -> str:
 
 
 def _capabilities_text(scope_topology_id: Optional[str]) -> str:
-    items = [i for i in _MCP_CAPABILITIES if (not scope_topology_id or i.scope in ("scoped", "both"))]
+    items = [
+        i
+        for i in _MCP_CAPABILITIES
+        if (not scope_topology_id or i.scope in ("scoped", "both"))
+    ]
     lines = [
         "Available MCP endpoints (curated):",
     ]
     if scope_topology_id:
         lines.append("Scoped mode: /api/services and /api/openapi are NOT allowed.")
     else:
-        lines.append("NOTE: microservices list is GET /api/services (alias /api/microservices).")
+        lines.append(
+            "NOTE: microservices list is GET /api/services (alias /api/microservices)."
+        )
     for it in items:
         lines.append(f"- {it.method} {it.path} — {it.description}")
     if scope_topology_id:
         lines.append(f"Scoped mode: ONLY operate on topology_id={scope_topology_id}.")
-        lines.append("Allowed groups: /api/emulation*, /api/snapshots*, /api/topologies/{id}*, /api/monitoring*, /api/network-configs/{id}*.")
-        lines.append("Blocked: /api/topologies listing, /api/services, /api/openapi, and unrelated /api/* routes.")
+        lines.append(
+            "Allowed groups: /api/emulation*, /api/snapshots*, /api/topologies/{id}*, /api/monitoring*, /api/network-configs/{id}*."
+        )
+        lines.append(
+            "Blocked: /api/topologies listing, /api/services, /api/openapi, and unrelated /api/* routes."
+        )
     return "\n".join(lines)
 
 
@@ -1485,7 +1634,11 @@ def toon_to_request(text: str) -> MCPRequest:
     if raw.startswith("{"):
         return MCPRequest(**json.loads(raw))
 
-    lines = [ln.strip() for ln in raw.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+    lines = [
+        ln.strip()
+        for ln in raw.splitlines()
+        if ln.strip() and not ln.strip().startswith("#")
+    ]
     if not lines:
         raise ValueError("Empty TOON")
 
@@ -1543,7 +1696,9 @@ def toon_to_request(text: str) -> MCPRequest:
 
 
 @app.post("/api/ai/mcp/generate", response_model=GenerateMCPRequestResponse)
-async def generate_mcp_request(req: GenerateMCPRequestRequest, request: Request, db: Session = Depends(get_db)):
+async def generate_mcp_request(
+    req: GenerateMCPRequestRequest, request: Request, db: Session = Depends(get_db)
+):
     system = (
         "You generate ONE HTTP request in TOON (Token-Oriented Object Notation) for the Caduceus-Flux API.\n"
         "Return ONLY TOON text (no markdown).\n"
@@ -1608,12 +1763,17 @@ async def generate_mcp_request(req: GenerateMCPRequestRequest, request: Request,
     mcp_req = _apply_known_path_aliases(mcp_req)
     if req.scope_topology_id:
         mcp_req = _apply_topology_scope(mcp_req, req.scope_topology_id)
-    return GenerateMCPRequestResponse(request=mcp_req, toon=request_to_toon(mcp_req), raw=resp.raw)
+    return GenerateMCPRequestResponse(
+        request=mcp_req, toon=request_to_toon(mcp_req), raw=resp.raw
+    )
 
 
 def _validate_mcp_path(path: str) -> None:
     if not path.startswith("/api/"):
-        raise HTTPException(status_code=400, detail="MCP request path must start with /api/")
+        raise HTTPException(
+            status_code=400, detail="MCP request path must start with /api/"
+        )
+
 
 _TOPOLOGY_ID_KEYS = {"topology_id", "topologyId"}
 
@@ -1630,7 +1790,9 @@ def _apply_known_path_aliases(req: MCPRequest) -> MCPRequest:
     return req
 
 
-_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
+_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+)
 
 
 def _looks_like_uuid(value: Any) -> bool:
@@ -1663,9 +1825,13 @@ async def _resolve_topology_id_by_hint(hint_text: str) -> str:
         r.raise_for_status()
         items = r.json() if r.content else []
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to resolve topology name: {e}")
+        raise HTTPException(
+            status_code=502, detail=f"Failed to resolve topology name: {e}"
+        )
     if not isinstance(items, list):
-        raise HTTPException(status_code=502, detail="Unexpected response when resolving topology name")
+        raise HTTPException(
+            status_code=502, detail="Unexpected response when resolving topology name"
+        )
 
     term_lower = term.lower()
     term_tokens = set(_tokens(term))
@@ -1710,7 +1876,9 @@ async def _resolve_topology_id_by_hint(hint_text: str) -> str:
     return str(best["id"])
 
 
-async def _normalize_mcp_request_for_execution(req: MCPRequest, scope_topology_id: Optional[str]) -> MCPRequest:
+async def _normalize_mcp_request_for_execution(
+    req: MCPRequest, scope_topology_id: Optional[str]
+) -> MCPRequest:
     """
     Make tool calls robust:
     - Apply known path aliases
@@ -1747,14 +1915,21 @@ async def _normalize_mcp_request_for_execution(req: MCPRequest, scope_topology_i
     if req.path == "/api/emulation/containers":
         if req.query:
             q = dict(req.query)
-            if "topology_id" in q and q.get("topology_id") and not _looks_like_uuid(q.get("topology_id")):
-                q["topology_id"] = await _resolve_topology_id_by_hint(str(q["topology_id"]))
+            if (
+                "topology_id" in q
+                and q.get("topology_id")
+                and not _looks_like_uuid(q.get("topology_id"))
+            ):
+                q["topology_id"] = await _resolve_topology_id_by_hint(
+                    str(q["topology_id"])
+                )
             req.query = q
 
     if req.path.startswith("/api/snapshots") and isinstance(req.body, dict):
         req.body = _normalize_topology_id_fields(req.body)
 
     return req
+
 
 _MCP_CAPABILITIES: List[MCPCapabilityItem] = [
     MCPCapabilityItem(
@@ -2081,17 +2256,25 @@ def _extract_emulation_id_from_path(path: str) -> Optional[str]:
     return None
 
 
-async def _ensure_emulation_belongs_to_topology(emulation_id: str, topology_id: str) -> None:
+async def _ensure_emulation_belongs_to_topology(
+    emulation_id: str, topology_id: str
+) -> None:
     r = await http_client.get(f"{MCP_SERVER_URL}/api/emulation/active")
     if r.status_code != 200:
-        raise HTTPException(status_code=502, detail="Failed to validate emulation scope")
+        raise HTTPException(
+            status_code=502, detail="Failed to validate emulation scope"
+        )
     payload = r.json() if r.content else {}
     emulations = payload.get("emulations") or []
     match = next((e for e in emulations if e.get("emulation_id") == emulation_id), None)
     if not match:
-        raise HTTPException(status_code=403, detail="Emulation not found for scope validation")
+        raise HTTPException(
+            status_code=403, detail="Emulation not found for scope validation"
+        )
     if match.get("topology_id") != topology_id:
-        raise HTTPException(status_code=403, detail="Emulation is outside the current topology scope")
+        raise HTTPException(
+            status_code=403, detail="Emulation is outside the current topology scope"
+        )
 
 
 async def _resolve_emulation_id_for_topology(topology_id: str) -> Optional[str]:
@@ -2104,30 +2287,58 @@ async def _resolve_emulation_id_for_topology(topology_id: str) -> Optional[str]:
         return None
 
     def _is_running(row: Any) -> bool:
-        return isinstance(row, dict) and str(row.get("status") or "").lower() == "running"
+        return (
+            isinstance(row, dict) and str(row.get("status") or "").lower() == "running"
+        )
 
-    match = next((e for e in emulations if isinstance(e, dict) and e.get("topology_id") == topology_id and _is_running(e)), None)
+    match = next(
+        (
+            e
+            for e in emulations
+            if isinstance(e, dict)
+            and e.get("topology_id") == topology_id
+            and _is_running(e)
+        ),
+        None,
+    )
     if not match:
-        match = next((e for e in emulations if isinstance(e, dict) and e.get("topology_id") == topology_id), None)
+        match = next(
+            (
+                e
+                for e in emulations
+                if isinstance(e, dict) and e.get("topology_id") == topology_id
+            ),
+            None,
+        )
     if isinstance(match, dict):
         emu_id = match.get("emulation_id")
         return str(emu_id) if emu_id else None
     return None
 
 
-async def _ensure_monitoring_device_belongs_to_topology(device: str, topology_id: str) -> None:
+async def _ensure_monitoring_device_belongs_to_topology(
+    device: str, topology_id: str
+) -> None:
     r = await http_client.get(f"{MCP_SERVER_URL}/api/emulation/active")
     if r.status_code != 200:
-        raise HTTPException(status_code=502, detail="Failed to validate monitoring device scope")
+        raise HTTPException(
+            status_code=502, detail="Failed to validate monitoring device scope"
+        )
     payload = r.json() if r.content else {}
     emulations = payload.get("emulations") or []
     match = next((e for e in emulations if e.get("topology_id") == topology_id), None)
     if not match or not match.get("emulation_id"):
-        raise HTTPException(status_code=403, detail="No running emulation for this topology (cannot validate device)")
+        raise HTTPException(
+            status_code=403,
+            detail="No running emulation for this topology (cannot validate device)",
+        )
     emu_id = match.get("emulation_id")
     r2 = await http_client.get(f"{MCP_SERVER_URL}/api/emulation/shell/{emu_id}")
     if r2.status_code != 200:
-        raise HTTPException(status_code=502, detail="Failed to fetch emulation shell info for device validation")
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to fetch emulation shell info for device validation",
+        )
     shell = r2.json() if r2.content else {}
     devices = shell.get("devices") or []
     allow: set[str] = set()
@@ -2140,7 +2351,9 @@ async def _ensure_monitoring_device_belongs_to_topology(device: str, topology_id
         allow.add(str(props.get("node_id") or "").strip())
     allow = {a for a in allow if a}
     if device not in allow:
-        raise HTTPException(status_code=403, detail="Device is outside the current topology scope")
+        raise HTTPException(
+            status_code=403, detail="Device is outside the current topology scope"
+        )
 
 
 def _apply_topology_scope(req: MCPRequest, topology_id: str) -> MCPRequest:
@@ -2155,19 +2368,28 @@ def _apply_topology_scope(req: MCPRequest, topology_id: str) -> MCPRequest:
             "/api/mcp",
         )
     ):
-        raise HTTPException(status_code=403, detail="Request is outside the allowed scope for this topology")
+        raise HTTPException(
+            status_code=403,
+            detail="Request is outside the allowed scope for this topology",
+        )
 
     path_topology_id = _extract_topology_id_from_path(req.path)
     if path_topology_id and path_topology_id != topology_id:
-        raise HTTPException(status_code=403, detail="Topology id in path does not match scope")
+        raise HTTPException(
+            status_code=403, detail="Topology id in path does not match scope"
+        )
 
     # Reject mismatched topology ids in query/body if present
     for v in _find_values_for_keys(req.query or {}, _TOPOLOGY_ID_KEYS):
         if v is not None and str(v) != topology_id:
-            raise HTTPException(status_code=403, detail="Topology id in query does not match scope")
+            raise HTTPException(
+                status_code=403, detail="Topology id in query does not match scope"
+            )
     for v in _find_values_for_keys(req.body or {}, _TOPOLOGY_ID_KEYS):
         if v is not None and str(v) != topology_id:
-            raise HTTPException(status_code=403, detail="Topology id in body does not match scope")
+            raise HTTPException(
+                status_code=403, detail="Topology id in body does not match scope"
+            )
 
     # Inject topology_id where safe/expected
     if req.path.startswith("/api/emulation/containers"):
@@ -2227,7 +2449,9 @@ def _apply_topology_scope(req: MCPRequest, topology_id: str) -> MCPRequest:
         parts = req.path.split("/", 4)  # ["", "api", "mcp", "{maybe}", "{rest...}"]
         if len(parts) >= 4 and _looks_like_uuid(parts[3]):
             if parts[3] != topology_id:
-                raise HTTPException(status_code=403, detail="Topology id in path does not match scope")
+                raise HTTPException(
+                    status_code=403, detail="Topology id in path does not match scope"
+                )
             return req
 
         if req.path.startswith("/api/mcp/proxy"):
@@ -2235,7 +2459,10 @@ def _apply_topology_scope(req: MCPRequest, topology_id: str) -> MCPRequest:
                 b = dict(req.body)
                 topo = b.get("topology_id")
                 if topo and str(topo) != topology_id:
-                    raise HTTPException(status_code=403, detail="Topology id in body does not match scope")
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Topology id in body does not match scope",
+                    )
                 b.setdefault("topology_id", topology_id)
                 req.body = b
             return req
@@ -2244,7 +2471,9 @@ def _apply_topology_scope(req: MCPRequest, topology_id: str) -> MCPRequest:
             q = dict(req.query or {})
             topo = q.get("topology_id")
             if topo and str(topo) != topology_id:
-                raise HTTPException(status_code=403, detail="Topology id in query does not match scope")
+                raise HTTPException(
+                    status_code=403, detail="Topology id in query does not match scope"
+                )
             q.setdefault("topology_id", topology_id)
             q.setdefault("include_shared", False)
             req.query = q
@@ -2255,7 +2484,9 @@ def _apply_topology_scope(req: MCPRequest, topology_id: str) -> MCPRequest:
 
     # Block broad listing
     if req.path == "/api/topologies":
-        raise HTTPException(status_code=403, detail="Listing topologies is not allowed in scoped mode")
+        raise HTTPException(
+            status_code=403, detail="Listing topologies is not allowed in scoped mode"
+        )
 
     return req
 
@@ -2277,10 +2508,16 @@ async def mcp_capabilities(scope_topology_id: Optional[str] = None):
 
     if scope_topology_id:
         notes.append(f"Scoped mode: ONLY operate on topology_id={scope_topology_id}.")
-        notes.append("Scoped allowlist: /api/emulation*, /api/snapshots*, /api/topologies/{id}, /api/network-configs/{id}*, /api/mcp/*.")
-        notes.append("Blocked in scoped mode: /api/topologies (broad listing) and any unrelated /api/* routes.")
+        notes.append(
+            "Scoped allowlist: /api/emulation*, /api/snapshots*, /api/topologies/{id}, /api/network-configs/{id}*, /api/mcp/*."
+        )
+        notes.append(
+            "Blocked in scoped mode: /api/topologies (broad listing) and any unrelated /api/* routes."
+        )
     else:
-        notes.append("Global mode: any /api/* route reachable through MCP server is allowed.")
+        notes.append(
+            "Global mode: any /api/* route reachable through MCP server is allowed."
+        )
 
     def _include(item: MCPCapabilityItem) -> bool:
         if not scope_topology_id:
@@ -2297,18 +2534,18 @@ async def mcp_capabilities(scope_topology_id: Optional[str] = None):
     if scope_topology_id:
         examples.extend(
             [
-                "GET /api/emulation/containers\nquery topology_id=\"<auto>\"",
-                "GET /api/snapshots\nquery topology_id=\"<auto>\"",
-                "POST /api/snapshots\nbody name=\"my-snap\" snapshot_type=\"criu_live\" topology_id=\"<auto>\"",
-                "POST /api/mcp/{topology_id}/proxy\nbody server=\"grafana\" method=\"GET\" path=\"/api/health\"",
+                'GET /api/emulation/containers\nquery topology_id="<auto>"',
+                'GET /api/snapshots\nquery topology_id="<auto>"',
+                'POST /api/snapshots\nbody name="my-snap" snapshot_type="criu_live" topology_id="<auto>"',
+                'POST /api/mcp/{topology_id}/proxy\nbody server="grafana" method="GET" path="/api/health"',
             ]
         )
     else:
         examples.extend(
             [
                 "GET /api/topologies",
-                "POST /api/emulation/start\nbody topology_id=\"<topology_id>\"",
-                "POST /api/mcp/proxy\nbody server=\"grafana\" method=\"GET\" path=\"/api/health\"",
+                'POST /api/emulation/start\nbody topology_id="<topology_id>"',
+                'POST /api/mcp/proxy\nbody server="grafana" method="GET" path="/api/health"',
             ]
         )
 
@@ -2372,7 +2609,9 @@ def _summarize_tool_call(toon: str, result: ExecuteMCPRequestResponse) -> str:
     if path == "/api/services" and isinstance(body, dict):
         services = body.get("services")
         if isinstance(services, list):
-            names = [s.get("name") for s in services if isinstance(s, dict) and s.get("name")]
+            names = [
+                s.get("name") for s in services if isinstance(s, dict) and s.get("name")
+            ]
             if names:
                 return f"Microservices ({len(names)}): " + ", ".join(names)
 
@@ -2386,8 +2625,10 @@ def _summarize_tool_call(toon: str, result: ExecuteMCPRequestResponse) -> str:
             if names:
                 more = "" if len(items) <= 20 else f"\n…and {len(items) - 20} more"
                 return (
-                    f"OpenAPI specs ({len(items)}): " + ", ".join(names) + more +
-                    "\nTip: open `/api/docs/<service>` for Swagger or call `GET /api/openapi/<service>` for JSON."
+                    f"OpenAPI specs ({len(items)}): "
+                    + ", ".join(names)
+                    + more
+                    + "\nTip: open `/api/docs/<service>` for Swagger or call `GET /api/openapi/<service>` for JSON."
                 )
 
     if path.startswith("/api/openapi/") and isinstance(body, dict):
@@ -2396,16 +2637,24 @@ def _summarize_tool_call(toon: str, result: ExecuteMCPRequestResponse) -> str:
         version = info.get("version")
         paths = body.get("paths") if isinstance(body.get("paths"), dict) else {}
         num_paths = len(paths) if isinstance(paths, dict) else 0
-        return f"{title} OpenAPI" + (f" v{version}" if version else "") + f" · paths={num_paths}"
+        return (
+            f"{title} OpenAPI"
+            + (f" v{version}" if version else "")
+            + f" · paths={num_paths}"
+        )
     if path == "/api/emulation/active" and isinstance(body, dict):
         emus = body.get("emulations")
         if isinstance(emus, list):
-            running = [e for e in emus if isinstance(e, dict) and e.get("status") == "running"]
+            running = [
+                e for e in emus if isinstance(e, dict) and e.get("status") == "running"
+            ]
             return f"Active emulations: {len(emus)} (running: {len(running)})"
     if path == "/api/emulation/containers" and isinstance(body, dict):
         items = body.get("items")
         if isinstance(items, list):
-            running = [c for c in items if isinstance(c, dict) and c.get("status") == "running"]
+            running = [
+                c for c in items if isinstance(c, dict) and c.get("status") == "running"
+            ]
             return f"Containers: {len(items)} (running: {len(running)})"
     if path.startswith("/api/snapshots") and isinstance(body, dict):
         total = body.get("total")
@@ -2422,11 +2671,17 @@ def _summarize_tool_call(toon: str, result: ExecuteMCPRequestResponse) -> str:
             for t in items[:15]:
                 name = t.get("name") or t.get("id")
                 tid = t.get("id")
-                status = t.get("emulation_status") or ("active" if t.get("is_active") else None)
+                status = t.get("emulation_status") or (
+                    "active" if t.get("is_active") else None
+                )
                 nodes = t.get("nodes")
                 links = t.get("links")
-                node_count = len(nodes) if isinstance(nodes, list) else t.get("node_count")
-                link_count = len(links) if isinstance(links, list) else t.get("link_count")
+                node_count = (
+                    len(nodes) if isinstance(nodes, list) else t.get("node_count")
+                )
+                link_count = (
+                    len(links) if isinstance(links, list) else t.get("link_count")
+                )
                 container_name = t.get("container_name")
                 project_id = t.get("project_id")
                 if name and tid:
@@ -2530,18 +2785,33 @@ def _pick_best_summary(tool_calls: List[Any], last_user: str) -> str:
     return _summarize_tool_call(best.toon, best.result)
 
 
-def _should_autofinalize_after(tool_call_toon: str, result: ExecuteMCPRequestResponse, last_user: str) -> bool:
+def _should_autofinalize_after(
+    tool_call_toon: str, result: ExecuteMCPRequestResponse, last_user: str
+) -> bool:
     if not (200 <= result.status_code < 300):
         return False
     method, path = _extract_method_path_from_toon(tool_call_toon)
     if not method or not path:
         return False
 
-    if path not in {"/api/emulation/start"} and not path.startswith("/api/emulation/stop/"):
+    if path not in {"/api/emulation/start"} and not path.startswith(
+        "/api/emulation/stop/"
+    ):
         return False
 
     t = (last_user or "").lower()
-    if any(w in t for w in [" and ", " then ", " also ", "container", "containers", "snapshot", "schedule"]):
+    if any(
+        w in t
+        for w in [
+            " and ",
+            " then ",
+            " also ",
+            "container",
+            "containers",
+            "snapshot",
+            "schedule",
+        ]
+    ):
         return False
     return True
 
@@ -2680,14 +2950,12 @@ async def _repair_agent_output(
         "- PATH MUST start with /api/\n"
         "- METHOD must be GET/POST/PUT/PATCH/DELETE\n"
         "- Use GET /api/services (NOT /api/microservices)\n"
-        "\n"
-        + _capabilities_text(scope_topology_id)
+        "\n" + _capabilities_text(scope_topology_id)
     )
     user = (
         f"Error: {error_hint}\n"
         "Fix the output to match the schema.\n"
-        "Bad output:\n"
-        + _trim_text(bad_output, 6000)
+        "Bad output:\n" + _trim_text(bad_output, 6000)
     )
     chat_req = ChatRequest(
         provider=provider,
@@ -2703,7 +2971,9 @@ async def _repair_agent_output(
     resp = await _chat_dispatch(chat_req)
     obj = _extract_json_object(resp.content)
     if not isinstance(obj, dict):
-        raise HTTPException(status_code=422, detail="Repair step did not return a JSON object")
+        raise HTTPException(
+            status_code=422, detail="Repair step did not return a JSON object"
+        )
     return obj
 
 
@@ -2736,14 +3006,12 @@ async def _repair_toon_output(
         "- METHOD must be GET/POST/PUT/PATCH/DELETE\n"
         "- Use GET /api/services (NOT /api/microservices)\n"
         "- Only include query/headers/body lines if needed\n"
-        "\n"
-        + _capabilities_text(scope_topology_id)
+        "\n" + _capabilities_text(scope_topology_id)
     )
     user = (
         f"User intent:\n{prompt}\n\n"
         f"Error:\n{error_hint}\n\n"
-        "Broken output:\n"
-        + _trim_text(bad_output, 6000)
+        "Broken output:\n" + _trim_text(bad_output, 6000)
     )
     chat_req = ChatRequest(
         provider=provider,
@@ -2777,9 +3045,13 @@ async def _execute_mcp_request_scoped(
         if emu_id:
             await _ensure_emulation_belongs_to_topology(emu_id, scope_topology_id)
         if mcp_req.path.startswith("/api/monitoring/devices/"):
-            device = mcp_req.path.split("/api/monitoring/devices/", 1)[1].split("?", 1)[0]
+            device = mcp_req.path.split("/api/monitoring/devices/", 1)[1].split("?", 1)[
+                0
+            ]
             if device:
-                await _ensure_monitoring_device_belongs_to_topology(device, scope_topology_id)
+                await _ensure_monitoring_device_belongs_to_topology(
+                    device, scope_topology_id
+                )
     _validate_mcp_path(mcp_req.path)
 
     url = f"{MCP_SERVER_URL}{mcp_req.path}"
@@ -2789,7 +3061,9 @@ async def _execute_mcp_request_scoped(
         headers.setdefault("X-Request-ID", request_id)
     if agent:
         headers.setdefault("X-Caduceus-Agent-Id", agent.id)
-        headers.setdefault("X-Caduceus-Agent-Policy", _encode_agent_policy_header(agent))
+        headers.setdefault(
+            "X-Caduceus-Agent-Policy", _encode_agent_policy_header(agent)
+        )
     body = mcp_req.body
 
     started = time.perf_counter()
@@ -2817,14 +3091,24 @@ async def _execute_mcp_request_scoped(
     except Exception:
         response_body = r.text
 
-    if scope_topology_id and mcp_req.path == "/api/emulation/active" and isinstance(response_body, dict):
+    if (
+        scope_topology_id
+        and mcp_req.path == "/api/emulation/active"
+        and isinstance(response_body, dict)
+    ):
         emulations = response_body.get("emulations")
         if isinstance(emulations, list):
             response_body = {
                 **response_body,
-                "emulations": [e for e in emulations if e.get("topology_id") == scope_topology_id],
+                "emulations": [
+                    e for e in emulations if e.get("topology_id") == scope_topology_id
+                ],
             }
-    if scope_topology_id and mcp_req.path.startswith("/api/snapshots") and isinstance(response_body, dict):
+    if (
+        scope_topology_id
+        and mcp_req.path.startswith("/api/snapshots")
+        and isinstance(response_body, dict)
+    ):
         items = response_body.get("items")
         if isinstance(items, list):
             filtered = [s for s in items if s.get("topology_id") == scope_topology_id]
@@ -2851,7 +3135,9 @@ async def mcp_agent(req: MCPAgentRequest, db: Session = Depends(get_db)):
     if req.max_steps < 1 or req.max_steps > 8:
         raise HTTPException(status_code=400, detail="max_steps must be between 1 and 8")
 
-    last_user = next((m.content for m in reversed(req.messages) if m.role == "user"), "")
+    last_user = next(
+        (m.content for m in reversed(req.messages) if m.role == "user"), ""
+    )
 
     system = (
         "You are an MCP-first assistant for Caduceus-Flux.\n"
@@ -2883,8 +3169,7 @@ async def mcp_agent(req: MCPAgentRequest, db: Session = Depends(get_db)):
         "  - GET /api/openapi (list specs)\n"
         "  - GET /api/openapi/{service_name} (read spec, then pick exact method/path)\n"
         "- Use GET /api/services (NOT /api/microservices)\n"
-        "\n"
-        + _capabilities_text(req.scope_topology_id)
+        "\n" + _capabilities_text(req.scope_topology_id)
     )
 
     llm_messages: List[ChatMessage] = [ChatMessage(role="system", content=system)]
@@ -2934,16 +3219,22 @@ async def mcp_agent(req: MCPAgentRequest, db: Session = Depends(get_db)):
                     scope_topology_id=req.scope_topology_id,
                     api_key=req.api_key,
                 )
-                exec_res = await _execute_mcp_request_scoped(mcp_req, req.scope_topology_id)
+                exec_res = await _execute_mcp_request_scoped(
+                    mcp_req, req.scope_topology_id
+                )
                 toon = request_to_toon(mcp_req).strip()
                 tool_calls.append(MCPAgentToolCall(toon=toon, result=exec_res))
                 summary = _summarize_tool_call(toon, exec_res)
-                return MCPAgentResponse(assistant=summary, tool_calls=tool_calls, raw_steps=raw_steps)
+                return MCPAgentResponse(
+                    assistant=summary, tool_calls=tool_calls, raw_steps=raw_steps
+                )
 
         action = str(action_obj.get("action") or "").lower().strip()
         if action == "final":
             content = str(action_obj.get("content") or "").strip()
-            return MCPAgentResponse(assistant=content, tool_calls=tool_calls, raw_steps=raw_steps)
+            return MCPAgentResponse(
+                assistant=content, tool_calls=tool_calls, raw_steps=raw_steps
+            )
 
         if action != "tool":
             # Repair once, else fallback to TOON generation.
@@ -2960,7 +3251,9 @@ async def mcp_agent(req: MCPAgentRequest, db: Session = Depends(get_db)):
                 action = str(action_obj.get("action") or "").lower().strip()
                 if action == "final":
                     content = str(action_obj.get("content") or "").strip()
-                    return MCPAgentResponse(assistant=content, tool_calls=tool_calls, raw_steps=raw_steps)
+                    return MCPAgentResponse(
+                        assistant=content, tool_calls=tool_calls, raw_steps=raw_steps
+                    )
                 if action != "tool":
                     raise ValueError("still not tool/final")
             except Exception:
@@ -2972,11 +3265,15 @@ async def mcp_agent(req: MCPAgentRequest, db: Session = Depends(get_db)):
                     scope_topology_id=req.scope_topology_id,
                     api_key=req.api_key,
                 )
-                exec_res = await _execute_mcp_request_scoped(mcp_req, req.scope_topology_id)
+                exec_res = await _execute_mcp_request_scoped(
+                    mcp_req, req.scope_topology_id
+                )
                 toon = request_to_toon(mcp_req).strip()
                 tool_calls.append(MCPAgentToolCall(toon=toon, result=exec_res))
                 summary = _summarize_tool_call(toon, exec_res)
-                return MCPAgentResponse(assistant=summary, tool_calls=tool_calls, raw_steps=raw_steps)
+                return MCPAgentResponse(
+                    assistant=summary, tool_calls=tool_calls, raw_steps=raw_steps
+                )
 
         toon = str(action_obj.get("toon") or "").strip()
         toon = _strip_code_fences(toon)
@@ -3008,24 +3305,44 @@ async def mcp_agent(req: MCPAgentRequest, db: Session = Depends(get_db)):
                     scope_topology_id=req.scope_topology_id,
                     api_key=req.api_key,
                 )
-                exec_res = await _execute_mcp_request_scoped(mcp_req, req.scope_topology_id)
+                exec_res = await _execute_mcp_request_scoped(
+                    mcp_req, req.scope_topology_id
+                )
                 toon = request_to_toon(mcp_req).strip()
                 tool_calls.append(MCPAgentToolCall(toon=toon, result=exec_res))
                 summary = _summarize_tool_call(toon, exec_res)
-                return MCPAgentResponse(assistant=summary, tool_calls=tool_calls, raw_steps=raw_steps)
+                return MCPAgentResponse(
+                    assistant=summary, tool_calls=tool_calls, raw_steps=raw_steps
+                )
 
         # Normalize method tokens like '/GET ...' (but do not break '/api/...').
         first_line = next((ln.strip() for ln in toon.splitlines() if ln.strip()), "")
         first_token = (first_line.split() or [""])[0]
-        if first_token.startswith("/") and first_token[1:].upper() in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
-            toon = first_line.lstrip("/") + "\n" + "\n".join([ln for ln in toon.splitlines()[1:]])
+        if first_token.startswith("/") and first_token[1:].upper() in {
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+        }:
+            toon = (
+                first_line.lstrip("/")
+                + "\n"
+                + "\n".join([ln for ln in toon.splitlines()[1:]])
+            )
 
         # Common model shortcut: returns only the path (infer method from capabilities)
         first_line = next((ln.strip() for ln in toon.splitlines() if ln.strip()), "")
-        if (" " not in first_line) and (first_line.startswith("/api/") or first_line.startswith("api/")):
-            path_only = first_line if first_line.startswith("/api/") else ("/" + first_line)
+        if (" " not in first_line) and (
+            first_line.startswith("/api/") or first_line.startswith("api/")
+        ):
+            path_only = (
+                first_line if first_line.startswith("/api/") else ("/" + first_line)
+            )
             method = _infer_method_for_path_only(path_only)
-            toon = f"{method} {path_only}\n" + "\n".join([ln for ln in toon.splitlines()[1:]])
+            toon = f"{method} {path_only}\n" + "\n".join(
+                [ln for ln in toon.splitlines()[1:]]
+            )
 
         try:
             mcp_req = toon_to_request(toon)
@@ -3042,9 +3359,16 @@ async def mcp_agent(req: MCPAgentRequest, db: Session = Depends(get_db)):
                 )
                 toon = str(action_obj.get("toon") or "").strip()
                 toon = _strip_code_fences(toon)
-                first_line = next((ln.strip() for ln in toon.splitlines() if ln.strip()), "")
+                first_line = next(
+                    (ln.strip() for ln in toon.splitlines() if ln.strip()), ""
+                )
                 if first_line.startswith("/api/") and " " not in first_line:
-                    toon = "GET " + first_line + "\n" + "\n".join([ln for ln in toon.splitlines()[1:]])
+                    toon = (
+                        "GET "
+                        + first_line
+                        + "\n"
+                        + "\n".join([ln for ln in toon.splitlines()[1:]])
+                    )
                 mcp_req = toon_to_request(toon)
             except Exception:
                 mcp_req = await _generate_mcp_from_prompt(
@@ -3055,11 +3379,15 @@ async def mcp_agent(req: MCPAgentRequest, db: Session = Depends(get_db)):
                     scope_topology_id=req.scope_topology_id,
                     api_key=req.api_key,
                 )
-                exec_res = await _execute_mcp_request_scoped(mcp_req, req.scope_topology_id)
+                exec_res = await _execute_mcp_request_scoped(
+                    mcp_req, req.scope_topology_id
+                )
                 toon2 = request_to_toon(mcp_req).strip()
                 tool_calls.append(MCPAgentToolCall(toon=toon2, result=exec_res))
                 summary = _summarize_tool_call(toon2, exec_res)
-                return MCPAgentResponse(assistant=summary, tool_calls=tool_calls, raw_steps=raw_steps)
+                return MCPAgentResponse(
+                    assistant=summary, tool_calls=tool_calls, raw_steps=raw_steps
+                )
 
         # Normalize/alias + show the effective request TOON
         mcp_req = _apply_known_path_aliases(mcp_req)
@@ -3081,8 +3409,14 @@ async def mcp_agent(req: MCPAgentRequest, db: Session = Depends(get_db)):
                 mcp_req.body = {}
             body_dict = dict(mcp_req.body)
             topo = body_dict.get("topology_id")
-            if not topo or not str(topo).strip() or str(topo).strip().lower() in {"selected_topology_id", "null", "none"}:
-                body_dict["topology_id"] = await _resolve_topology_id_by_hint(last_user or "")
+            if (
+                not topo
+                or not str(topo).strip()
+                or str(topo).strip().lower() in {"selected_topology_id", "null", "none"}
+            ):
+                body_dict["topology_id"] = await _resolve_topology_id_by_hint(
+                    last_user or ""
+                )
                 mcp_req.body = body_dict
 
         exec_res = await _execute_mcp_request_scoped(mcp_req, req.scope_topology_id)
@@ -3091,7 +3425,9 @@ async def mcp_agent(req: MCPAgentRequest, db: Session = Depends(get_db)):
 
         # If user explicitly asked for containers as part of a "run/start" request,
         # complete it deterministically (model sometimes stops early after a successful start).
-        if mcp_req.path == "/api/emulation/start" and _user_asked_for_containers(last_user):
+        if mcp_req.path == "/api/emulation/start" and _user_asked_for_containers(
+            last_user
+        ):
             topo_id: Optional[str] = req.scope_topology_id
             if topo_id is None and isinstance(mcp_req.body, dict):
                 topo_id = str(mcp_req.body.get("topology_id") or "").strip() or None
@@ -3100,11 +3436,21 @@ async def mcp_agent(req: MCPAgentRequest, db: Session = Depends(get_db)):
                 path="/api/emulation/containers",
                 query={"topology_id": topo_id} if topo_id else None,
             )
-            containers_res = await _execute_mcp_request_scoped(containers_req, req.scope_topology_id)
+            containers_res = await _execute_mcp_request_scoped(
+                containers_req, req.scope_topology_id
+            )
             containers_toon = request_to_toon(containers_req).strip()
-            tool_calls.append(MCPAgentToolCall(toon=containers_toon, result=containers_res))
-            assistant = _summarize_tool_call(effective_toon, exec_res) + "\n" + _summarize_tool_call(containers_toon, containers_res)
-            return MCPAgentResponse(assistant=assistant, tool_calls=tool_calls, raw_steps=raw_steps)
+            tool_calls.append(
+                MCPAgentToolCall(toon=containers_toon, result=containers_res)
+            )
+            assistant = (
+                _summarize_tool_call(effective_toon, exec_res)
+                + "\n"
+                + _summarize_tool_call(containers_toon, containers_res)
+            )
+            return MCPAgentResponse(
+                assistant=assistant, tool_calls=tool_calls, raw_steps=raw_steps
+            )
 
         if _should_autofinalize_after(effective_toon, exec_res, last_user):
             return MCPAgentResponse(
@@ -3115,11 +3461,21 @@ async def mcp_agent(req: MCPAgentRequest, db: Session = Depends(get_db)):
 
         # Feed tool result back into the model for the next step
         result_text = _trim_text(
-            json.dumps({"status_code": exec_res.status_code, "body": exec_res.body}, ensure_ascii=False),
+            json.dumps(
+                {"status_code": exec_res.status_code, "body": exec_res.body},
+                ensure_ascii=False,
+            ),
             limit=8000,
         )
-        llm_messages.append(ChatMessage(role="assistant", content=json.dumps({"action": "tool", "toon": effective_toon})))
-        llm_messages.append(ChatMessage(role="system", content=f"Tool result:\n{result_text}"))
+        llm_messages.append(
+            ChatMessage(
+                role="assistant",
+                content=json.dumps({"action": "tool", "toon": effective_toon}),
+            )
+        )
+        llm_messages.append(
+            ChatMessage(role="system", content=f"Tool result:\n{result_text}")
+        )
         llm_messages.append(
             ChatMessage(
                 role="system",
@@ -3132,7 +3488,9 @@ async def mcp_agent(req: MCPAgentRequest, db: Session = Depends(get_db)):
         fallback = f"Executed {len(tool_calls)} tool call(s). {_pick_best_summary(tool_calls, last_user)}"
     else:
         fallback = "I couldn't complete the request."
-    return MCPAgentResponse(assistant=fallback, tool_calls=tool_calls, raw_steps=raw_steps)
+    return MCPAgentResponse(
+        assistant=fallback, tool_calls=tool_calls, raw_steps=raw_steps
+    )
 
 
 @app.post("/api/ai/mcp/execute", response_model=ExecuteMCPRequestResponse)
@@ -3144,7 +3502,9 @@ async def execute_mcp_request(req: ExecuteMCPRequestRequest):
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid TOON: {e}")
     if mcp_req is None:
-        raise HTTPException(status_code=400, detail="Provide either 'request' or 'toon'")
+        raise HTTPException(
+            status_code=400, detail="Provide either 'request' or 'toon'"
+        )
     return await _execute_mcp_request_scoped(mcp_req, req.scope_topology_id)
 
 
@@ -3170,11 +3530,19 @@ async def _mcp_get_json(path: str, params: Optional[Dict[str, Any]] = None) -> A
         except Exception:
             return r.text
     if last_status and 400 <= int(last_status) < 600:
-        raise HTTPException(status_code=int(last_status), detail=f"Failed to fetch {path}: {last_text[:300]}")
-    raise HTTPException(status_code=502, detail=f"Failed to fetch {path} (HTTP {last_status or '—'}): {last_text[:200]}")
+        raise HTTPException(
+            status_code=int(last_status),
+            detail=f"Failed to fetch {path}: {last_text[:300]}",
+        )
+    raise HTTPException(
+        status_code=502,
+        detail=f"Failed to fetch {path} (HTTP {last_status or '—'}): {last_text[:200]}",
+    )
 
 
-async def _mcp_post_json(path: str, json_body: Dict[str, Any], params: Optional[Dict[str, Any]] = None) -> Any:
+async def _mcp_post_json(
+    path: str, json_body: Dict[str, Any], params: Optional[Dict[str, Any]] = None
+) -> Any:
     last_status: Optional[int] = None
     last_text: str = ""
     for base in (MCP_SERVER_URL, MCP_FALLBACK_GATEWAY_URL):
@@ -3195,8 +3563,14 @@ async def _mcp_post_json(path: str, json_body: Dict[str, Any], params: Optional[
         except Exception:
             return r.text
     if last_status and 400 <= int(last_status) < 600:
-        raise HTTPException(status_code=int(last_status), detail=f"Failed to fetch {path}: {last_text[:300]}")
-    raise HTTPException(status_code=502, detail=f"Failed to fetch {path} (HTTP {last_status or '—'}): {last_text[:200]}")
+        raise HTTPException(
+            status_code=int(last_status),
+            detail=f"Failed to fetch {path}: {last_text[:300]}",
+        )
+    raise HTTPException(
+        status_code=502,
+        detail=f"Failed to fetch {path} (HTTP {last_status or '—'}): {last_text[:200]}",
+    )
 
 
 def _safe_ratio(numerator: float, denominator: float) -> float:
@@ -3220,7 +3594,11 @@ async def _pick_default_model(db: Session, provider: Provider) -> str:
             r = await http_client.get(f"{OLLAMA_BASE_URL}/api/tags")
             if r.status_code == 200:
                 payload = r.json()
-                models = [m.get("name") for m in (payload.get("models") or []) if m.get("name")]
+                models = [
+                    m.get("name")
+                    for m in (payload.get("models") or [])
+                    if m.get("name")
+                ]
                 if models:
                     return str(models[0])
         except Exception:
@@ -3233,7 +3611,9 @@ async def _pick_default_model(db: Session, provider: Provider) -> str:
     defaults = DEFAULT_MODELS.get(provider) or []
     if defaults:
         return str(defaults[0])
-    raise HTTPException(status_code=400, detail=f"No default model for provider: {provider}")
+    raise HTTPException(
+        status_code=400, detail=f"No default model for provider: {provider}"
+    )
 
 
 def _pick_default_provider(db: Session) -> Provider:
@@ -3251,12 +3631,15 @@ async def diagnose_network(req: NetworkDiagnoseRequest, db: Session = Depends(ge
     if not topology_id:
         raise HTTPException(status_code=400, detail="topology_id is required")
 
-    provider: Provider = (req.provider or "ollama")  # type: ignore[assignment]
+    provider: Provider = req.provider or "ollama"  # type: ignore[assignment]
     model = (req.model or "").strip() or await _pick_default_model(db, provider)
 
     api_key = _resolve_api_key(db, provider, req.api_key)
     if provider in ("openai", "anthropic", "gemini") and not api_key:
-        raise HTTPException(status_code=400, detail=f"{provider} is not configured. Set API key in AI Settings.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"{provider} is not configured. Set API key in AI Settings.",
+        )
 
     # Gather context from the running system.
     fetch_errors: Dict[str, str] = {}
@@ -3271,7 +3654,14 @@ async def diagnose_network(req: NetworkDiagnoseRequest, db: Session = Depends(ge
         active = {}
         fetch_errors["active"] = str(getattr(exc, "detail", str(exc)))
     emulations = active.get("emulations") if isinstance(active, dict) else []
-    emu = next((e for e in (emulations or []) if isinstance(e, dict) and e.get("topology_id") == topology_id), None)
+    emu = next(
+        (
+            e
+            for e in (emulations or [])
+            if isinstance(e, dict) and e.get("topology_id") == topology_id
+        ),
+        None,
+    )
     emulation_id = emu.get("emulation_id") if isinstance(emu, dict) else None
     emulation_status = emu.get("status") if isinstance(emu, dict) else None
 
@@ -3285,13 +3675,17 @@ async def diagnose_network(req: NetworkDiagnoseRequest, db: Session = Depends(ge
 
     topology_metrics: Any = None
     try:
-        topology_metrics = await _mcp_get_json(f"/api/monitoring/topology/{topology_id}/metrics")
+        topology_metrics = await _mcp_get_json(
+            f"/api/monitoring/topology/{topology_id}/metrics"
+        )
     except Exception:
         topology_metrics = None
 
     device_entries = (shell or {}).get("devices") if isinstance(shell, dict) else []
     device_entries = device_entries if isinstance(device_entries, list) else []
-    device_names = [_device_display_name(d) for d in device_entries if isinstance(d, dict)]
+    device_names = [
+        _device_display_name(d) for d in device_entries if isinstance(d, dict)
+    ]
     device_names = [d for d in device_names if d][:30]
 
     device_metrics: Dict[str, Any] = {}
@@ -3313,7 +3707,11 @@ async def diagnose_network(req: NetworkDiagnoseRequest, db: Session = Depends(ge
     for name, met in device_metrics.items():
         if not isinstance(met, dict):
             continue
-        cpu = (met.get("cpu") or {}).get("total_cpu_percent") if isinstance(met.get("cpu"), dict) else None
+        cpu = (
+            (met.get("cpu") or {}).get("total_cpu_percent")
+            if isinstance(met.get("cpu"), dict)
+            else None
+        )
         mem = met.get("memory") if isinstance(met.get("memory"), dict) else {}
         mem_used = float(mem.get("used_mb") or 0)
         mem_total = float(mem.get("total_mb") or 0)
@@ -3325,7 +3723,9 @@ async def diagnose_network(req: NetworkDiagnoseRequest, db: Session = Depends(ge
         if isinstance(met.get("interfaces"), dict):
             for v in met["interfaces"].values():
                 if isinstance(v, dict):
-                    errors += int(v.get("rx_errors") or 0) + int(v.get("tx_errors") or 0)
+                    errors += int(v.get("rx_errors") or 0) + int(
+                        v.get("tx_errors") or 0
+                    )
 
         row = {
             "device": name,
@@ -3372,12 +3772,17 @@ async def diagnose_network(req: NetworkDiagnoseRequest, db: Session = Depends(ge
         "Bottlenecks:\n- ...\n"
         "Recommendations:\n- ...\n"
     )
-    user = "Context JSON:\n" + _trim_text(json.dumps(heuristics, ensure_ascii=False), 12000)
+    user = "Context JSON:\n" + _trim_text(
+        json.dumps(heuristics, ensure_ascii=False), 12000
+    )
     chat_req = ChatRequest(
         provider=provider,
         model=model,
         api_key=api_key,
-        messages=[ChatMessage(role="system", content=system), ChatMessage(role="user", content=user)],
+        messages=[
+            ChatMessage(role="system", content=system),
+            ChatMessage(role="user", content=user),
+        ],
         temperature=0.2,
         max_tokens=700,
     )
@@ -3392,7 +3797,9 @@ async def diagnose_network(req: NetworkDiagnoseRequest, db: Session = Depends(ge
 
 
 @app.post("/api/ai/network/tests/analyze", response_model=NetworkTestAnalyzeResponse)
-async def analyze_network_tests(req: NetworkTestAnalyzeRequest, db: Session = Depends(get_db)):
+async def analyze_network_tests(
+    req: NetworkTestAnalyzeRequest, db: Session = Depends(get_db)
+):
     topology_id = (req.topology_id or "").strip()
     run_id = (req.run_id or "").strip()
     if not topology_id:
@@ -3400,11 +3807,14 @@ async def analyze_network_tests(req: NetworkTestAnalyzeRequest, db: Session = De
     if not run_id:
         raise HTTPException(status_code=400, detail="run_id is required")
 
-    provider: Provider = (req.provider or _pick_default_provider(db))  # type: ignore[assignment]
+    provider: Provider = req.provider or _pick_default_provider(db)  # type: ignore[assignment]
     model = (req.model or "").strip() or await _pick_default_model(db, provider)
     api_key = _resolve_api_key(db, provider, req.api_key)
     if provider in ("openai", "anthropic", "gemini") and not api_key:
-        raise HTTPException(status_code=400, detail=f"{provider} is not configured. Set API key in AI Settings.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"{provider} is not configured. Set API key in AI Settings.",
+        )
 
     fetch_errors: Dict[str, str] = {}
     try:
@@ -3427,27 +3837,59 @@ async def analyze_network_tests(req: NetworkTestAnalyzeRequest, db: Session = De
     try:
         iperf = test_results.get("iperf") if isinstance(test_results, dict) else None
         ping = test_results.get("ping") if isinstance(test_results, dict) else None
-        metrics = ((test_results or {}).get("metrics") if isinstance(test_results, dict) else None) or {}
+        metrics = (
+            (test_results or {}).get("metrics")
+            if isinstance(test_results, dict)
+            else None
+        ) or {}
         summary = metrics.get("summary_by_device") if isinstance(metrics, dict) else {}
 
         if isinstance(ping, list) and ping:
-            losses = [float(p.get("loss_pct") or 0.0) for p in ping if isinstance(p, dict)]
-            rtts = [float(p.get("rtt_avg_ms") or 0.0) for p in ping if isinstance(p, dict)]
+            losses = [
+                float(p.get("loss_pct") or 0.0) for p in ping if isinstance(p, dict)
+            ]
+            rtts = [
+                float(p.get("rtt_avg_ms") or 0.0) for p in ping if isinstance(p, dict)
+            ]
             highlights["ping"] = {
                 "count": len(ping),
                 "loss_max_pct": max(losses) if losses else 0.0,
                 "rtt_max_ms": max(rtts) if rtts else 0.0,
             }
         if isinstance(iperf, list) and iperf:
-            tcp = [float(x.get("throughput_mbps") or 0.0) for x in iperf if isinstance(x, dict) and x.get("proto") == "tcp"]
-            udp = [float(x.get("throughput_mbps") or 0.0) for x in iperf if isinstance(x, dict) and x.get("proto") == "udp"]
+            tcp = [
+                float(x.get("throughput_mbps") or 0.0)
+                for x in iperf
+                if isinstance(x, dict) and x.get("proto") == "tcp"
+            ]
+            udp = [
+                float(x.get("throughput_mbps") or 0.0)
+                for x in iperf
+                if isinstance(x, dict) and x.get("proto") == "udp"
+            ]
             highlights["iperf"] = {
                 "tcp_max_mbps": max(tcp) if tcp else 0.0,
                 "udp_max_mbps": max(udp) if udp else 0.0,
             }
         if isinstance(summary, dict) and summary:
-            cpu_top = max(((k, float(v.get("cpu_max") or 0.0)) for k, v in summary.items() if isinstance(v, dict)), key=lambda x: x[1], default=("", 0.0))
-            mem_top = max(((k, float(v.get("mem_max") or 0.0)) for k, v in summary.items() if isinstance(v, dict)), key=lambda x: x[1], default=("", 0.0))
+            cpu_top = max(
+                (
+                    (k, float(v.get("cpu_max") or 0.0))
+                    for k, v in summary.items()
+                    if isinstance(v, dict)
+                ),
+                key=lambda x: x[1],
+                default=("", 0.0),
+            )
+            mem_top = max(
+                (
+                    (k, float(v.get("mem_max") or 0.0))
+                    for k, v in summary.items()
+                    if isinstance(v, dict)
+                ),
+                key=lambda x: x[1],
+                default=("", 0.0),
+            )
             highlights["load"] = {
                 "cpu_top_device": cpu_top[0],
                 "cpu_max_pct": cpu_top[1],
@@ -3482,7 +3924,10 @@ async def analyze_network_tests(req: NetworkTestAnalyzeRequest, db: Session = De
         provider=provider,
         model=model,
         api_key=api_key,
-        messages=[ChatMessage(role="system", content=system), ChatMessage(role="user", content=user)],
+        messages=[
+            ChatMessage(role="system", content=system),
+            ChatMessage(role="user", content=user),
+        ],
         temperature=0.2,
         max_tokens=900,
     )
@@ -3497,17 +3942,25 @@ async def analyze_network_tests(req: NetworkTestAnalyzeRequest, db: Session = De
     )
 
 
-@app.post("/api/ai/network/diagnostics/analyze", response_model=NetworkDiagnosticsAnalyzeResponse)
-async def analyze_network_diagnostics(req: NetworkDiagnosticsAnalyzeRequest, db: Session = Depends(get_db)):
+@app.post(
+    "/api/ai/network/diagnostics/analyze",
+    response_model=NetworkDiagnosticsAnalyzeResponse,
+)
+async def analyze_network_diagnostics(
+    req: NetworkDiagnosticsAnalyzeRequest, db: Session = Depends(get_db)
+):
     topology_id = (req.topology_id or "").strip()
     if not topology_id:
         raise HTTPException(status_code=400, detail="topology_id is required")
 
-    provider: Provider = (req.provider or _pick_default_provider(db))  # type: ignore[assignment]
+    provider: Provider = req.provider or _pick_default_provider(db)  # type: ignore[assignment]
     model = (req.model or "").strip() or await _pick_default_model(db, provider)
     api_key = _resolve_api_key(db, provider, req.api_key)
     if provider in ("openai", "anthropic", "gemini") and not api_key:
-        raise HTTPException(status_code=400, detail=f"{provider} is not configured. Set API key in AI Settings.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"{provider} is not configured. Set API key in AI Settings.",
+        )
 
     query_payload: Dict[str, Any] = {
         "window_minutes": req.window_minutes,
@@ -3523,13 +3976,19 @@ async def analyze_network_diagnostics(req: NetworkDiagnosticsAnalyzeRequest, db:
 
     fetch_errors: Dict[str, str] = {}
     try:
-        series = await _mcp_post_json(f"/api/diagnostics/{topology_id}/influx/query", query_payload)
+        series = await _mcp_post_json(
+            f"/api/diagnostics/{topology_id}/influx/query", query_payload
+        )
     except Exception as exc:
         series = {}
         fetch_errors["series"] = str(getattr(exc, "detail", str(exc)))
     points = series.get("points") if isinstance(series, dict) else None
     points = points if isinstance(points, list) else []
-    fields = series.get("fields") if isinstance(series, dict) and isinstance(series.get("fields"), list) else list(req.fields or [])
+    fields = (
+        series.get("fields")
+        if isinstance(series, dict) and isinstance(series.get("fields"), list)
+        else list(req.fields or [])
+    )
 
     def _num(v: Any) -> Optional[float]:
         try:
@@ -3568,7 +4027,21 @@ async def analyze_network_diagnostics(req: NetworkDiagnosticsAnalyzeRequest, db:
 
     summary = {
         "topology_id": topology_id,
-        "query": {k: series.get(k) for k in ("bucket", "measurement", "every_seconds", "start_ms", "end_ms", "device", "source", "emulation_id", "fields") if isinstance(series, dict)},
+        "query": {
+            k: series.get(k)
+            for k in (
+                "bucket",
+                "measurement",
+                "every_seconds",
+                "start_ms",
+                "end_ms",
+                "device",
+                "source",
+                "emulation_id",
+                "fields",
+            )
+            if isinstance(series, dict)
+        },
         "stats": stats,
         "sample_points": sample[:120],
     }
@@ -3586,7 +4059,9 @@ async def analyze_network_diagnostics(req: NetworkDiagnosticsAnalyzeRequest, db:
         "## Recommendations\n"
         "Keep it concise and actionable.\n"
     )
-    user_prompt = (req.prompt or "").strip() or "Analyze the selected telemetry window and explain anomalies, bottlenecks, and risks."
+    user_prompt = (
+        req.prompt or ""
+    ).strip() or "Analyze the selected telemetry window and explain anomalies, bottlenecks, and risks."
     user = (
         f"User request: {user_prompt}\n\n"
         "Diagnostics context (JSON):\n"
@@ -3596,7 +4071,10 @@ async def analyze_network_diagnostics(req: NetworkDiagnosticsAnalyzeRequest, db:
         provider=provider,
         model=model,
         api_key=api_key,
-        messages=[ChatMessage(role="system", content=system), ChatMessage(role="user", content=user)],
+        messages=[
+            ChatMessage(role="system", content=system),
+            ChatMessage(role="user", content=user),
+        ],
         temperature=0.2,
         max_tokens=900,
     )
@@ -3668,7 +4146,9 @@ def _pinned_context_text(row: Optional[AIPinnedContext]) -> str:
     if row.emulation_id:
         lines.append(f"- emulation_id: {row.emulation_id}")
     if row.container_name or row.container_id:
-        lines.append(f"- container: {row.container_name or ''} {row.container_id or ''}".strip())
+        lines.append(
+            f"- container: {row.container_name or ''} {row.container_id or ''}".strip()
+        )
     if row.updated_at:
         lines.append(f"- updated_at: {row.updated_at.isoformat()}")
     if row.content_md:
@@ -3680,14 +4160,21 @@ def _pinned_context_text(row: Optional[AIPinnedContext]) -> str:
 PINNED_CONTEXT_TTL_SECONDS = int(os.getenv("AI_PINNED_CONTEXT_TTL_SECONDS", "30"))
 
 
-async def _refresh_pinned_context(db: Session, topology_id: str, request_id: Optional[str] = None) -> Optional[AIPinnedContext]:
+async def _refresh_pinned_context(
+    db: Session, topology_id: str, request_id: Optional[str] = None
+) -> Optional[AIPinnedContext]:
     """
     Keep a small, always-present per-topology context record so agents stop guessing.
     """
     if not topology_id:
         return None
     row = db.get(AIPinnedContext, topology_id)
-    if row and row.updated_at and (datetime.utcnow() - row.updated_at).total_seconds() < PINNED_CONTEXT_TTL_SECONDS:
+    if (
+        row
+        and row.updated_at
+        and (datetime.utcnow() - row.updated_at).total_seconds()
+        < PINNED_CONTEXT_TTL_SECONDS
+    ):
         return row
 
     emulation_id: Optional[str] = None
@@ -3698,13 +4185,31 @@ async def _refresh_pinned_context(db: Session, topology_id: str, request_id: Opt
 
     try:
         active_req = MCPRequest(method="GET", path="/api/emulation/active")
-        active_res = await _execute_mcp_request_scoped(active_req, topology_id, request_id=request_id)
+        active_res = await _execute_mcp_request_scoped(
+            active_req, topology_id, request_id=request_id
+        )
         body = active_res.body if isinstance(active_res.body, dict) else {}
         emulations = body.get("emulations") if isinstance(body, dict) else []
         if isinstance(emulations, list):
-            match = next((e for e in emulations if isinstance(e, dict) and e.get("topology_id") == topology_id and str(e.get("status") or "").lower() == "running"), None)
+            match = next(
+                (
+                    e
+                    for e in emulations
+                    if isinstance(e, dict)
+                    and e.get("topology_id") == topology_id
+                    and str(e.get("status") or "").lower() == "running"
+                ),
+                None,
+            )
             if not match:
-                match = next((e for e in emulations if isinstance(e, dict) and e.get("topology_id") == topology_id), None)
+                match = next(
+                    (
+                        e
+                        for e in emulations
+                        if isinstance(e, dict) and e.get("topology_id") == topology_id
+                    ),
+                    None,
+                )
             if isinstance(match, dict):
                 emulation_id = str(match.get("emulation_id") or "") or None
                 status = str(match.get("status") or "") or None
@@ -3715,24 +4220,39 @@ async def _refresh_pinned_context(db: Session, topology_id: str, request_id: Opt
         context["active_emulation_error"] = str(e)
 
     try:
-        containers_req = MCPRequest(method="GET", path="/api/emulation/containers", query={"topology_id": topology_id})
-        containers_res = await _execute_mcp_request_scoped(containers_req, topology_id, request_id=request_id)
+        containers_req = MCPRequest(
+            method="GET",
+            path="/api/emulation/containers",
+            query={"topology_id": topology_id},
+        )
+        containers_res = await _execute_mcp_request_scoped(
+            containers_req, topology_id, request_id=request_id
+        )
         context["containers"] = containers_res.body
     except Exception as e:
         context["containers_error"] = str(e)
 
     try:
-        infra_req = MCPRequest(method="GET", path=f"/api/infrastructure/topologies/{topology_id}/infra/status")
-        infra_res = await _execute_mcp_request_scoped(infra_req, topology_id, request_id=request_id)
+        infra_req = MCPRequest(
+            method="GET",
+            path=f"/api/infrastructure/topologies/{topology_id}/infra/status",
+        )
+        infra_res = await _execute_mcp_request_scoped(
+            infra_req, topology_id, request_id=request_id
+        )
         context["infra_status"] = infra_res.body
     except Exception as e:
         context["infra_status_error"] = str(e)
 
     summary_lines = [f"topology_id={topology_id}"]
     if emulation_id:
-        summary_lines.append(f"emulation_id={emulation_id} status={status or 'unknown'}")
+        summary_lines.append(
+            f"emulation_id={emulation_id} status={status or 'unknown'}"
+        )
     if container_name or container_id:
-        summary_lines.append(f"container={container_name or ''} {container_id or ''}".strip())
+        summary_lines.append(
+            f"container={container_name or ''} {container_id or ''}".strip()
+        )
     try:
         infra = context.get("infra_status")
         if isinstance(infra, dict):
@@ -3811,10 +4331,17 @@ def _is_dangerous_mcp(req: MCPRequest) -> bool:
     if method == "DELETE":
         return True
     # Infrastructure destructive ops
-    if method != "GET" and path.startswith("/api/infrastructure") and any(tok in path for tok in ("/purge", "/stop", "/restart")):
+    if (
+        method != "GET"
+        and path.startswith("/api/infrastructure")
+        and any(tok in path for tok in ("/purge", "/stop", "/restart"))
+    ):
         return True
     # Emulation stop/cleanup can destroy runtime state
-    if method != "GET" and (path.startswith("/api/emulation/stop/") or path.startswith("/api/emulation/purge")):
+    if method != "GET" and (
+        path.startswith("/api/emulation/stop/")
+        or path.startswith("/api/emulation/purge")
+    ):
         return True
     if path.startswith("/api/projects") and method in ("DELETE", "POST"):
         # project creation is OK, but be conservative with non-GET here
@@ -3822,7 +4349,9 @@ def _is_dangerous_mcp(req: MCPRequest) -> bool:
     return False
 
 
-def _pick_agent_for_mcp_request(db: Session, mcp_req: MCPRequest, topology_id: Optional[str]) -> Optional[AIAgent]:
+def _pick_agent_for_mcp_request(
+    db: Session, mcp_req: MCPRequest, topology_id: Optional[str]
+) -> Optional[AIAgent]:
     method = re.sub(r"[^A-Z]", "", str(mcp_req.method).upper())
     path = str(mcp_req.path or "").strip()
     best: Optional[AIAgent] = None
@@ -3865,7 +4394,9 @@ async def _maybe_embed_text(text: str) -> Optional[List[float]]:
             payload = r.json()
             vec = payload.get("embedding")
             if isinstance(vec, list):
-                return _fix_embedding_dim([float(x) for x in vec if isinstance(x, (int, float))])
+                return _fix_embedding_dim(
+                    [float(x) for x in vec if isinstance(x, (int, float))]
+                )
             return None
 
         r2 = await http_client.post(
@@ -3881,7 +4412,9 @@ async def _maybe_embed_text(text: str) -> Optional[List[float]]:
         emb = payload.get("embeddings")
         if isinstance(emb, list) and emb and isinstance(emb[0], list):
             vec = emb[0]
-            return _fix_embedding_dim([float(x) for x in vec if isinstance(x, (int, float))])
+            return _fix_embedding_dim(
+                [float(x) for x in vec if isinstance(x, (int, float))]
+            )
         return None
     except Exception:
         return None
@@ -3943,8 +4476,11 @@ def _routing_candidates(db: Session, topology_id: Optional[str]) -> List[AIAgent
     return out
 
 
-def _route_agent_rules(message: str, topology_id: Optional[str]) -> Optional[AgentRouteInfo]:
+def _route_agent_rules(
+    message: str, topology_id: Optional[str]
+) -> Optional[AgentRouteInfo]:
     t = (message or "").lower()
+
     # Keep this minimal and only for very obvious cases.
     def has_any(words: List[str]) -> bool:
         return any(w in t for w in words)
@@ -3958,16 +4494,22 @@ def _route_agent_rules(message: str, topology_id: Optional[str]) -> Optional[Age
             reason="rule: snapshot/restore",
             confidence=1.0,
         )
-    if has_any(["influx", "metrics", "monitoring", "diagnostic", "bottleneck", "telemetry"]):
+    if has_any(
+        ["influx", "metrics", "monitoring", "diagnostic", "bottleneck", "telemetry"]
+    ):
         agent_id = "diagnostics" if topology_id else "admin"
         return AgentRouteInfo(
             mode="router",
             selected_agent_id=agent_id,
-            selected_agent_name="Monitoring & Diagnostics Agent" if agent_id == "diagnostics" else "Admin Agent",
+            selected_agent_name="Monitoring & Diagnostics Agent"
+            if agent_id == "diagnostics"
+            else "Admin Agent",
             reason="rule: monitoring/metrics",
             confidence=1.0,
         )
-    if has_any(["nginx", "gateway", "routing", "reverse proxy", "502", "503", "bad gateway"]):
+    if has_any(
+        ["nginx", "gateway", "routing", "reverse proxy", "502", "503", "bad gateway"]
+    ):
         agent_id = "infra_ops"
         return AgentRouteInfo(
             mode="router",
@@ -3976,21 +4518,49 @@ def _route_agent_rules(message: str, topology_id: Optional[str]) -> Optional[Age
             reason="rule: infra/nginx",
             confidence=1.0,
         )
-    if has_any(["emulation", "mininet", "controller", "onos", "ryu", "osken", "openflow", "start", "stop"]):
+    if has_any(
+        [
+            "emulation",
+            "mininet",
+            "controller",
+            "onos",
+            "ryu",
+            "osken",
+            "openflow",
+            "start",
+            "stop",
+        ]
+    ):
         agent_id = "emulation_ops" if topology_id else "admin"
         return AgentRouteInfo(
             mode="router",
             selected_agent_id=agent_id,
-            selected_agent_name="EmulationOps Agent" if agent_id == "emulation_ops" else "Admin Agent",
+            selected_agent_name="EmulationOps Agent"
+            if agent_id == "emulation_ops"
+            else "Admin Agent",
             reason="rule: emulation/control",
             confidence=0.9,
         )
-    if has_any(["network config", "ip", "ipv4", "ipv6", "mac", "gateway", "interface", "routes", "dns"]):
+    if has_any(
+        [
+            "network config",
+            "ip",
+            "ipv4",
+            "ipv6",
+            "mac",
+            "gateway",
+            "interface",
+            "routes",
+            "dns",
+        ]
+    ):
         agent_id = "network_config" if topology_id else "admin"
         return AgentRouteInfo(
             mode="router",
             selected_agent_id=agent_id,
-            selected_agent_name="NetworkConfig Agent" if agent_id == "network_config" else "Admin Agent",
+            selected_agent_name="NetworkConfig Agent"
+            if agent_id == "network_config"
+            else "Admin Agent",
             reason="rule: network config",
             confidence=0.9,
         )
@@ -4024,18 +4594,31 @@ async def _route_agent_decision_via_llm(
         )
 
     catalog = [
-        {"id": a.id, "name": a.name, "scope": a.scope, "description": a.description or ""} for a in candidates
+        {
+            "id": a.id,
+            "name": a.name,
+            "scope": a.scope,
+            "description": a.description or "",
+        }
+        for a in candidates
     ]
     system = (
         "You are a router for a multi-agent system.\n"
         "Pick the single best agent_id for the user's message.\n"
-        "Return ONLY JSON (no markdown): {\"agent_id\":\"...\",\"confidence\":0.0-1.0,\"reason\":\"...\"}\n"
+        'Return ONLY JSON (no markdown): {"agent_id":"...","confidence":0.0-1.0,"reason":"..."}\n'
         "Rules:\n"
         "- Choose ONLY from the provided agents list.\n"
         "- If topology_id is null, avoid topology-scoped agents.\n"
         "- Prefer more specific agents when clearly applicable.\n"
     )
-    user = json.dumps({"topology_id": topology_id, "message": (message or "").strip(), "agents": catalog}, ensure_ascii=False)
+    user = json.dumps(
+        {
+            "topology_id": topology_id,
+            "message": (message or "").strip(),
+            "agents": catalog,
+        },
+        ensure_ascii=False,
+    )
     api_key = _resolve_api_key(db, provider, None)
     if provider in ("openai", "anthropic", "gemini") and not api_key:
         agent_id = _route_fallback(topology_id)
@@ -4053,7 +4636,10 @@ async def _route_agent_decision_via_llm(
             provider=provider,
             model=model,
             api_key=api_key,
-            messages=[ChatMessage(role="system", content=system), ChatMessage(role="user", content=user)],
+            messages=[
+                ChatMessage(role="system", content=system),
+                ChatMessage(role="user", content=user),
+            ],
             temperature=0.0,
             max_tokens=220,
         )
@@ -4062,7 +4648,9 @@ async def _route_agent_decision_via_llm(
     agent_id = str(obj.get("agent_id") or "").strip()
     reason = str(obj.get("reason") or "").strip() or None
     try:
-        confidence = float(obj.get("confidence")) if obj.get("confidence") is not None else None
+        confidence = (
+            float(obj.get("confidence")) if obj.get("confidence") is not None else None
+        )
     except Exception:
         confidence = None
     if not agent_id or not db.get(AIAgent, agent_id):
@@ -4086,7 +4674,9 @@ async def _route_agent_id_via_llm(
     provider: Provider,
     model: str,
 ) -> str:
-    decision = await _route_agent_decision_via_llm(db, message, topology_id, provider, model)
+    decision = await _route_agent_decision_via_llm(
+        db, message, topology_id, provider, model
+    )
     return decision.selected_agent_id
 
 
@@ -4099,7 +4689,10 @@ async def _memory_hits_for_topology(
     if not topology_id:
         return []
 
-    thread_ids = [t.id for t in db.query(AIThread).filter(AIThread.topology_id == topology_id).all()]
+    thread_ids = [
+        t.id
+        for t in db.query(AIThread).filter(AIThread.topology_id == topology_id).all()
+    ]
     if not thread_ids:
         return []
 
@@ -4129,7 +4722,12 @@ async def _memory_hits_for_topology(
         try:
             # cosine_distance: smaller is better; convert to similarity-ish score.
             rows = (
-                db.query(AIMessage, AIMessage.embedding_vec.cosine_distance(query_embedding).label("dist"))
+                db.query(
+                    AIMessage,
+                    AIMessage.embedding_vec.cosine_distance(query_embedding).label(
+                        "dist"
+                    ),
+                )
                 .filter(AIMessage.thread_id.in_(thread_ids))
                 .filter(AIMessage.role != "system")
                 .filter(AIMessage.embedding_vec.isnot(None))
@@ -4197,7 +4795,12 @@ async def _memory_hits_for_topology(
     if query_embedding:
         try:
             rows2 = (
-                db.query(AIArtifact, AIArtifact.embedding_vec.cosine_distance(query_embedding).label("dist"))
+                db.query(
+                    AIArtifact,
+                    AIArtifact.embedding_vec.cosine_distance(query_embedding).label(
+                        "dist"
+                    ),
+                )
                 .filter(AIArtifact.thread_id.in_(thread_ids))
                 .filter(AIArtifact.embedding_vec.isnot(None))
                 .order_by("dist")
@@ -4301,7 +4904,12 @@ async def _maybe_write_thread_summary(db: Session, thread_id: str) -> None:
         .order_by(AIArtifact.created_at.desc())
         .first()
     )
-    if last and last.created_at and (datetime.utcnow() - last.created_at).total_seconds() < THREAD_SUMMARY_TTL_SECONDS:
+    if (
+        last
+        and last.created_at
+        and (datetime.utcnow() - last.created_at).total_seconds()
+        < THREAD_SUMMARY_TTL_SECONDS
+    ):
         return
 
     tail = msgs[-18:]
@@ -4348,7 +4956,9 @@ def _pdf_from_text(title: str, text: str) -> bytes:
 
 @app.get("/api/ai/agents", response_model=AgentListResponse)
 async def list_agents(db: Session = Depends(get_db)):
-    agents = db.query(AIAgent).order_by(AIAgent.is_builtin.desc(), AIAgent.id.asc()).all()
+    agents = (
+        db.query(AIAgent).order_by(AIAgent.is_builtin.desc(), AIAgent.id.asc()).all()
+    )
     out = []
     for a in agents:
         out.append(
@@ -4369,14 +4979,18 @@ async def route_agent(req: AgentRouteRequest, db: Session = Depends(get_db)):
     text = (req.message or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="message is required")
-    provider: Provider = (req.provider or _pick_default_provider(db))  # type: ignore[assignment]
+    provider: Provider = req.provider or _pick_default_provider(db)  # type: ignore[assignment]
     model = (req.model or "").strip() or await _pick_default_model(db, provider)
-    decision = await _route_agent_decision_via_llm(db, text, (req.topology_id or "").strip() or None, provider, model)
+    decision = await _route_agent_decision_via_llm(
+        db, text, (req.topology_id or "").strip() or None, provider, model
+    )
     return AgentRouteResponse(route=decision)
 
 
 @app.get("/api/ai/threads", response_model=ThreadListResponse)
-async def list_threads(agent_id: str, topology_id: Optional[str] = None, db: Session = Depends(get_db)):
+async def list_threads(
+    agent_id: str, topology_id: Optional[str] = None, db: Session = Depends(get_db)
+):
     q = db.query(AIThread).filter(AIThread.agent_id == agent_id)
     if topology_id:
         q = q.filter(AIThread.topology_id == topology_id)
@@ -4387,7 +5001,9 @@ async def list_threads(agent_id: str, topology_id: Optional[str] = None, db: Ses
 
 
 @app.delete("/api/ai/threads", status_code=204)
-async def delete_threads(agent_id: str, topology_id: Optional[str] = None, db: Session = Depends(get_db)):
+async def delete_threads(
+    agent_id: str, topology_id: Optional[str] = None, db: Session = Depends(get_db)
+):
     """
     Bulk delete threads for a given agent (+ optional topology scope).
     """
@@ -4401,13 +5017,28 @@ async def delete_threads(agent_id: str, topology_id: Optional[str] = None, db: S
         return Response(status_code=204)
 
     thread_ids = [t.id for t in threads]
-    msg_ids = [row[0] for row in db.query(AIMessage.id).filter(AIMessage.thread_id.in_(thread_ids)).all()]
+    msg_ids = [
+        row[0]
+        for row in db.query(AIMessage.id)
+        .filter(AIMessage.thread_id.in_(thread_ids))
+        .all()
+    ]
     if msg_ids:
-        db.query(AIToolCall).filter(AIToolCall.message_id.in_(msg_ids)).delete(synchronize_session=False)
-        db.query(AIMessage).filter(AIMessage.id.in_(msg_ids)).delete(synchronize_session=False)
-    db.query(AIArtifact).filter(AIArtifact.thread_id.in_(thread_ids)).delete(synchronize_session=False)
-    db.query(AIRun).filter(AIRun.thread_id.in_(thread_ids)).delete(synchronize_session=False)
-    db.query(AIThread).filter(AIThread.id.in_(thread_ids)).delete(synchronize_session=False)
+        db.query(AIToolCall).filter(AIToolCall.message_id.in_(msg_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(AIMessage).filter(AIMessage.id.in_(msg_ids)).delete(
+            synchronize_session=False
+        )
+    db.query(AIArtifact).filter(AIArtifact.thread_id.in_(thread_ids)).delete(
+        synchronize_session=False
+    )
+    db.query(AIRun).filter(AIRun.thread_id.in_(thread_ids)).delete(
+        synchronize_session=False
+    )
+    db.query(AIThread).filter(AIThread.id.in_(thread_ids)).delete(
+        synchronize_session=False
+    )
     db.commit()
     return Response(status_code=204)
 
@@ -4461,12 +5092,23 @@ async def delete_thread(thread_id: str, db: Session = Depends(get_db)):
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
 
-    msg_ids = [row[0] for row in db.query(AIMessage.id).filter(AIMessage.thread_id == thread_id).all()]
+    msg_ids = [
+        row[0]
+        for row in db.query(AIMessage.id).filter(AIMessage.thread_id == thread_id).all()
+    ]
     if msg_ids:
-        db.query(AIToolCall).filter(AIToolCall.message_id.in_(msg_ids)).delete(synchronize_session=False)
-        db.query(AIMessage).filter(AIMessage.id.in_(msg_ids)).delete(synchronize_session=False)
-    db.query(AIArtifact).filter(AIArtifact.thread_id == thread_id).delete(synchronize_session=False)
-    db.query(AIRun).filter(AIRun.thread_id == thread_id).delete(synchronize_session=False)
+        db.query(AIToolCall).filter(AIToolCall.message_id.in_(msg_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(AIMessage).filter(AIMessage.id.in_(msg_ids)).delete(
+            synchronize_session=False
+        )
+    db.query(AIArtifact).filter(AIArtifact.thread_id == thread_id).delete(
+        synchronize_session=False
+    )
+    db.query(AIRun).filter(AIRun.thread_id == thread_id).delete(
+        synchronize_session=False
+    )
     db.delete(thread)
     db.commit()
     return Response(status_code=204)
@@ -4477,7 +5119,12 @@ async def get_thread(thread_id: str, db: Session = Depends(get_db)):
     thread = db.get(AIThread, thread_id)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
-    msgs = db.query(AIMessage).filter(AIMessage.thread_id == thread.id).order_by(AIMessage.created_at.asc()).all()
+    msgs = (
+        db.query(AIMessage)
+        .filter(AIMessage.thread_id == thread.id)
+        .order_by(AIMessage.created_at.asc())
+        .all()
+    )
     msg_ids = [m.id for m in msgs]
     tool_calls = (
         db.query(AIToolCall)
@@ -4508,14 +5155,19 @@ async def get_thread(thread_id: str, db: Session = Depends(get_db)):
                 role=m.role,  # type: ignore[arg-type]
                 content_md=m.content_md,
                 created_at=m.created_at.isoformat(),
-                meta=_safe_json_loads(m.meta_json, {}) if isinstance(m.meta_json, str) else {},
+                meta=_safe_json_loads(m.meta_json, {})
+                if isinstance(m.meta_json, str)
+                else {},
                 tool_calls=tool_by_msg.get(m.id, []),
             )
         )
     return ThreadGetResponse(thread=_thread_to_info(thread), messages=out_msgs)
 
 
-@app.post("/api/ai/tool-calls/{tool_call_id}/execute", response_model=ExecuteMCPRequestResponse)
+@app.post(
+    "/api/ai/tool-calls/{tool_call_id}/execute",
+    response_model=ExecuteMCPRequestResponse,
+)
 async def execute_saved_tool_call(tool_call_id: str, db: Session = Depends(get_db)):
     tc = db.get(AIToolCall, tool_call_id)
     if not tc:
@@ -4538,7 +5190,10 @@ async def execute_saved_tool_call(tool_call_id: str, db: Session = Depends(get_d
 
     # If an LLM planned an emulation action using a topology id, resolve the emulation id deterministically.
     if thread.topology_id:
-        m = re.match(r"^/api/emulation/(status|stop|pause|resume|shell)/([^/?#]+)$", str(mcp_req.path or ""))
+        m = re.match(
+            r"^/api/emulation/(status|stop|pause|resume|shell)/([^/?#]+)$",
+            str(mcp_req.path or ""),
+        )
         if m and m.group(2) == thread.topology_id:
             emu_id = await _resolve_emulation_id_for_topology(thread.topology_id)
             if emu_id:
@@ -4582,14 +5237,18 @@ async def execute_saved_tool_call(tool_call_id: str, db: Session = Depends(get_d
         if agent_for_policy:
             deny = _agent_allows(agent_for_policy, mcp_req)
             if deny:
-                raise HTTPException(status_code=403, detail=f"Denied by agent policy: {deny}")
+                raise HTTPException(
+                    status_code=403, detail=f"Denied by agent policy: {deny}"
+                )
 
     tc.status = "running"
     db.add(tc)
     db.commit()
 
     try:
-        exec_res = await _execute_mcp_request_scoped(mcp_req, thread.topology_id, agent=agent_for_policy)
+        exec_res = await _execute_mcp_request_scoped(
+            mcp_req, thread.topology_id, agent=agent_for_policy
+        )
     except HTTPException as exc:
         tc.status = "error"
         tc.result_json = json.dumps(
@@ -4622,12 +5281,16 @@ async def execute_saved_tool_call(tool_call_id: str, db: Session = Depends(get_d
         )
         db.add(tc)
         db.commit()
-        return ExecuteMCPRequestResponse(status_code=500, headers={}, body={"detail": str(exc)}, meta={"error": True})
+        return ExecuteMCPRequestResponse(
+            status_code=500, headers={}, body={"detail": str(exc)}, meta={"error": True}
+        )
 
     tc.status = "success" if exec_res.status_code < 400 else "error"
     tc.result_json = json.dumps(exec_res.model_dump(), ensure_ascii=False)
     try:
-        tc.duration_ms = int((exec_res.meta or {}).get("duration_ms")) if exec_res.meta else None
+        tc.duration_ms = (
+            int((exec_res.meta or {}).get("duration_ms")) if exec_res.meta else None
+        )
     except Exception:
         tc.duration_ms = None
     db.add(tc)
@@ -4680,11 +5343,21 @@ async def _agent_chat_loop(
         if pinned_text:
             system_parts.append(pinned_text)
     if memory_hits:
-        mem_text = "\\n".join([f"- ({h.get('type')}) score={h.get('score')}: {h.get('excerpt')}" for h in memory_hits])
+        mem_text = "\\n".join(
+            [
+                f"- ({h.get('type')}) score={h.get('score')}: {h.get('excerpt')}"
+                for h in memory_hits
+            ]
+        )
         system_parts.append("Relevant memory:\\n" + mem_text)
     system = "\\n\\n".join([p for p in system_parts if p.strip()])
 
-    history_msgs = db.query(AIMessage).filter(AIMessage.thread_id == thread.id).order_by(AIMessage.created_at.asc()).all()
+    history_msgs = (
+        db.query(AIMessage)
+        .filter(AIMessage.thread_id == thread.id)
+        .order_by(AIMessage.created_at.asc())
+        .all()
+    )
 
     llm_messages: List[ChatMessage] = [ChatMessage(role="system", content=system)]
     for m in history_msgs[-24:]:
@@ -4736,29 +5409,54 @@ async def _agent_chat_loop(
             )
 
         if action != "tool":
-            llm_messages.append(ChatMessage(role="system", content="Invalid action. Use {action:tool|final} JSON."))
+            llm_messages.append(
+                ChatMessage(
+                    role="system",
+                    content="Invalid action. Use {action:tool|final} JSON.",
+                )
+            )
             continue
 
         toon = _strip_code_fences(str(action_obj.get("toon") or "")).strip()
         if not toon:
-            llm_messages.append(ChatMessage(role="system", content="Tool call missing toon. Try again."))
+            llm_messages.append(
+                ChatMessage(role="system", content="Tool call missing toon. Try again.")
+            )
             continue
 
         first_line = next((ln.strip() for ln in toon.splitlines() if ln.strip()), "")
         first_token = (first_line.split() or [""])[0]
-        if first_token.startswith("/") and first_token[1:].upper() in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
-            toon = first_line.lstrip("/") + "\n" + "\n".join([ln for ln in toon.splitlines()[1:]])
+        if first_token.startswith("/") and first_token[1:].upper() in {
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+        }:
+            toon = (
+                first_line.lstrip("/")
+                + "\n"
+                + "\n".join([ln for ln in toon.splitlines()[1:]])
+            )
         # Common model shortcut: returns only the path (infer method from capabilities)
         first_line = next((ln.strip() for ln in toon.splitlines() if ln.strip()), "")
-        if (" " not in first_line) and (first_line.startswith("/api/") or first_line.startswith("api/")):
-            path_only = first_line if first_line.startswith("/api/") else "/" + first_line
+        if (" " not in first_line) and (
+            first_line.startswith("/api/") or first_line.startswith("api/")
+        ):
+            path_only = (
+                first_line if first_line.startswith("/api/") else "/" + first_line
+            )
             method = _infer_method_for_path_only(path_only)
-            toon = f"{method} {path_only}\n" + "\n".join([ln for ln in toon.splitlines()[1:]])
+            toon = f"{method} {path_only}\n" + "\n".join(
+                [ln for ln in toon.splitlines()[1:]]
+            )
 
         try:
             mcp_req = toon_to_request(toon)
         except Exception as e:
-            llm_messages.append(ChatMessage(role="system", content=f"Invalid TOON: {e}. Try again."))
+            llm_messages.append(
+                ChatMessage(role="system", content=f"Invalid TOON: {e}. Try again.")
+            )
             continue
 
         mcp_req = _apply_known_path_aliases(mcp_req)
@@ -4769,7 +5467,12 @@ async def _agent_chat_loop(
                 denied_tools += 1
                 if router_mode and denied_tools >= 2:
                     raise ToolDeniedError(mcp_req=mcp_req, reason=str(exc.detail))
-                llm_messages.append(ChatMessage(role="system", content=f"Tool call denied by scope: {exc.detail}"))
+                llm_messages.append(
+                    ChatMessage(
+                        role="system",
+                        content=f"Tool call denied by scope: {exc.detail}",
+                    )
+                )
                 continue
 
         deny_reason = _agent_allows(agent, mcp_req)
@@ -4777,7 +5480,9 @@ async def _agent_chat_loop(
             denied_tools += 1
             if router_mode and denied_tools >= 2:
                 raise ToolDeniedError(mcp_req=mcp_req, reason=deny_reason)
-            llm_messages.append(ChatMessage(role="system", content=f"Tool call denied: {deny_reason}"))
+            llm_messages.append(
+                ChatMessage(role="system", content=f"Tool call denied: {deny_reason}")
+            )
             continue
         if mcp_req.path == "/api/services" and not _user_asked_for_services(last_user):
             llm_messages.append(
@@ -4790,20 +5495,44 @@ async def _agent_chat_loop(
 
         # Resolve common placeholders deterministically (before confirmation gating).
         if scope_topology_id:
-            m = re.match(r"^/api/emulation/(status|stop|pause|resume|shell)/([^/?#]+)$", str(mcp_req.path or ""))
+            m = re.match(
+                r"^/api/emulation/(status|stop|pause|resume|shell)/([^/?#]+)$",
+                str(mcp_req.path or ""),
+            )
             if m and m.group(2) == scope_topology_id:
                 emu_id = await _resolve_emulation_id_for_topology(scope_topology_id)
                 if emu_id:
                     mcp_req.path = f"/api/emulation/{m.group(1)}/{emu_id}"
 
-        if isinstance(mcp_req.path, str) and "{emulation_id}" in mcp_req.path and mcp_req.path.startswith("/api/emulation/stop"):
+        if (
+            isinstance(mcp_req.path, str)
+            and "{emulation_id}" in mcp_req.path
+            and mcp_req.path.startswith("/api/emulation/stop")
+        ):
             active_req = MCPRequest(method="GET", path="/api/emulation/active")
-            active_res = await _execute_mcp_request_scoped(active_req, scope_topology_id, agent=agent, request_id=request_id)
-            tool_calls.append(MCPAgentToolCall(toon=request_to_toon(active_req).strip(), result=active_res))
+            active_res = await _execute_mcp_request_scoped(
+                active_req, scope_topology_id, agent=agent, request_id=request_id
+            )
+            tool_calls.append(
+                MCPAgentToolCall(
+                    toon=request_to_toon(active_req).strip(), result=active_res
+                )
+            )
             active_body = active_res.body
-            emulations = (active_body or {}).get("emulations") if isinstance(active_body, dict) else []
+            emulations = (
+                (active_body or {}).get("emulations")
+                if isinstance(active_body, dict)
+                else []
+            )
             emulations = emulations if isinstance(emulations, list) else []
-            picked = next((e for e in emulations if isinstance(e, dict) and e.get("status") == "running"), None)
+            picked = next(
+                (
+                    e
+                    for e in emulations
+                    if isinstance(e, dict) and e.get("status") == "running"
+                ),
+                None,
+            )
             emu_id = picked.get("emulation_id") if isinstance(picked, dict) else None
             if not emu_id:
                 return AgentChatResponse(
@@ -4844,7 +5573,9 @@ async def _agent_chat_loop(
                 memory_hits=memory_hits,
             )
 
-        exec_res = await _execute_mcp_request_scoped(mcp_req, scope_topology_id, agent=agent, request_id=request_id)
+        exec_res = await _execute_mcp_request_scoped(
+            mcp_req, scope_topology_id, agent=agent, request_id=request_id
+        )
         effective_toon = request_to_toon(mcp_req).strip()
         tool_calls.append(MCPAgentToolCall(toon=effective_toon, result=exec_res))
 
@@ -4859,7 +5590,11 @@ async def _agent_chat_loop(
                 )
             )
 
-    summary = _pick_best_summary(tool_calls, last_user) if tool_calls else "I couldn't complete that within the step limit."
+    summary = (
+        _pick_best_summary(tool_calls, last_user)
+        if tool_calls
+        else "I couldn't complete that within the step limit."
+    )
     return AgentChatResponse(
         thread_id=thread.id,
         thread_agent_id=thread.agent_id,
@@ -4881,9 +5616,11 @@ async def agent_chat(req: AgentChatRequest, db: Session = Depends(get_db)):
     if not text:
         raise HTTPException(status_code=400, detail="message is required")
     if req.max_steps < 1 or req.max_steps > 10:
-        raise HTTPException(status_code=400, detail="max_steps must be between 1 and 10")
+        raise HTTPException(
+            status_code=400, detail="max_steps must be between 1 and 10"
+        )
 
-    provider: Provider = (req.provider or _pick_default_provider(db))  # type: ignore[assignment]
+    provider: Provider = req.provider or _pick_default_provider(db)  # type: ignore[assignment]
     model = (req.model or "").strip() or await _pick_default_model(db, provider)
 
     thread: Optional[AIThread] = None
@@ -4905,16 +5642,22 @@ async def agent_chat(req: AgentChatRequest, db: Session = Depends(get_db)):
             if not thread_agent:
                 raise HTTPException(status_code=404, detail="Unknown agent_id")
         else:
-            decision = await _route_agent_decision_via_llm(db, text, topology_id, provider, model)
+            decision = await _route_agent_decision_via_llm(
+                db, text, topology_id, provider, model
+            )
             thread_agent = db.get(AIAgent, decision.selected_agent_id)
             if not thread_agent:
                 raise HTTPException(status_code=404, detail="Unknown agent_id")
-            route_info = AgentRouteInfo(mode="fixed", **decision.model_dump(exclude={"mode"}))
+            route_info = AgentRouteInfo(
+                mode="fixed", **decision.model_dump(exclude={"mode"})
+            )
 
         if (thread_agent.scope or "both") == "global" and topology_id:
             topology_id = None
         if (thread_agent.scope or "both") == "topology" and not topology_id:
-            raise HTTPException(status_code=400, detail="This agent requires topology_id")
+            raise HTTPException(
+                status_code=400, detail="This agent requires topology_id"
+            )
 
         thread = AIThread(
             id=str(uuid.uuid4()),
@@ -4947,7 +5690,9 @@ async def agent_chat(req: AgentChatRequest, db: Session = Depends(get_db)):
 
     # Router-mode: a thread can be bound to the router and dynamically choose a specialized agent per message.
     if thread_agent.id == "router":
-        decision = await _route_agent_decision_via_llm(db, text, thread.topology_id, provider, model)
+        decision = await _route_agent_decision_via_llm(
+            db, text, thread.topology_id, provider, model
+        )
         selected_agent = db.get(AIAgent, decision.selected_agent_id)
         if not selected_agent:
             raise HTTPException(status_code=404, detail="Routed agent not found")
@@ -4970,7 +5715,11 @@ async def agent_chat(req: AgentChatRequest, db: Session = Depends(get_db)):
 
     user_embedding = await _maybe_embed_text(text)
     # Compute memory before inserting this user message, so the current message doesn't "hit itself".
-    memory_hits = await _memory_hits_for_topology(db, thread.topology_id, user_embedding, text) if thread.topology_id else []
+    memory_hits = (
+        await _memory_hits_for_topology(db, thread.topology_id, user_embedding, text)
+        if thread.topology_id
+        else []
+    )
 
     db.add(
         AIMessage(
@@ -5044,10 +5793,14 @@ async def agent_chat(req: AgentChatRequest, db: Session = Depends(get_db)):
                             route=current_route,
                         )
                         break
-                    alt = _pick_agent_for_mcp_request(db, err.mcp_req, thread.topology_id)
+                    alt = _pick_agent_for_mcp_request(
+                        db, err.mcp_req, thread.topology_id
+                    )
                     if not alt or alt.id == current_agent.id:
                         # Fallback to re-routing from the original message
-                        decision2 = await _route_agent_decision_via_llm(db, text, thread.topology_id, provider, model)
+                        decision2 = await _route_agent_decision_via_llm(
+                            db, text, thread.topology_id, provider, model
+                        )
                         alt = db.get(AIAgent, decision2.selected_agent_id) or alt
                         if alt:
                             current_route = decision2
@@ -5063,7 +5816,13 @@ async def agent_chat(req: AgentChatRequest, db: Session = Depends(get_db)):
                             route=current_route,
                         )
                         break
-                    route_trace.append({"event": "reroute", "selected_agent_id": alt.id, "selected_agent_name": alt.name})
+                    route_trace.append(
+                        {
+                            "event": "reroute",
+                            "selected_agent_id": alt.id,
+                            "selected_agent_name": alt.name,
+                        }
+                    )
                     current_agent = alt
                     current_route.selected_agent_id = alt.id
                     current_route.selected_agent_name = alt.name
@@ -5087,7 +5846,9 @@ async def agent_chat(req: AgentChatRequest, db: Session = Depends(get_db)):
 
         assistant_text = (response.assistant or "").strip()
         assistant_embedding = await _maybe_embed_text(assistant_text)
-        assistant_meta: Dict[str, Any] = {"route": (response.route.model_dump() if response.route else None)}
+        assistant_meta: Dict[str, Any] = {
+            "route": (response.route.model_dump() if response.route else None)
+        }
         if response.raw_steps:
             assistant_meta["raw_steps"] = response.raw_steps
         duration_ms = int((time.perf_counter() - started_perf) * 1000)
@@ -5110,7 +5871,9 @@ async def agent_chat(req: AgentChatRequest, db: Session = Depends(get_db)):
             role="assistant",
             content_md=assistant_text,
             meta_json=json.dumps(assistant_meta, ensure_ascii=False),
-            embedding_json=json.dumps(assistant_embedding) if assistant_embedding else None,
+            embedding_json=json.dumps(assistant_embedding)
+            if assistant_embedding
+            else None,
             embedding_vec=assistant_embedding,
             created_at=datetime.utcnow(),
         )
@@ -5119,10 +5882,18 @@ async def agent_chat(req: AgentChatRequest, db: Session = Depends(get_db)):
         for tc in response.tool_calls:
             tool_duration_ms = None
             try:
-                tool_duration_ms = int((tc.result.meta or {}).get("duration_ms")) if tc.result and tc.result.meta else None
+                tool_duration_ms = (
+                    int((tc.result.meta or {}).get("duration_ms"))
+                    if tc.result and tc.result.meta
+                    else None
+                )
             except Exception:
                 tool_duration_ms = None
-            requires_confirmation = bool((tc.result.meta or {}).get("requires_confirmation")) if tc.result and tc.result.meta else False
+            requires_confirmation = (
+                bool((tc.result.meta or {}).get("requires_confirmation"))
+                if tc.result and tc.result.meta
+                else False
+            )
             db.add(
                 AIToolCall(
                     id=str(uuid.uuid4()),
@@ -5131,9 +5902,15 @@ async def agent_chat(req: AgentChatRequest, db: Session = Depends(get_db)):
                     status=(
                         "pending"
                         if requires_confirmation
-                        else ("success" if tc.result and tc.result.status_code < 400 else "error")
+                        else (
+                            "success"
+                            if tc.result and tc.result.status_code < 400
+                            else "error"
+                        )
                     ),
-                    result_json=json.dumps(tc.result.model_dump(), ensure_ascii=False) if tc.result else None,
+                    result_json=json.dumps(tc.result.model_dump(), ensure_ascii=False)
+                    if tc.result
+                    else None,
                     duration_ms=tool_duration_ms,
                     created_at=datetime.utcnow(),
                 )
@@ -5180,10 +5957,21 @@ async def agent_chat(req: AgentChatRequest, db: Session = Depends(get_db)):
                         provider=provider,
                         model=model,
                         request_id=request_id,
-                        route_json=json.dumps((response.route.model_dump() if response and response.route else (route_info.model_dump() if route_info else None)), ensure_ascii=False),
-                        usage_json=json.dumps(usage, ensure_ascii=False) if usage else None,
+                        route_json=json.dumps(
+                            (
+                                response.route.model_dump()
+                                if response and response.route
+                                else (route_info.model_dump() if route_info else None)
+                            ),
+                            ensure_ascii=False,
+                        ),
+                        usage_json=json.dumps(usage, ensure_ascii=False)
+                        if usage
+                        else None,
                         status=status,
-                        error_json=json.dumps(error_json, ensure_ascii=False) if error_json else None,
+                        error_json=json.dumps(error_json, ensure_ascii=False)
+                        if error_json
+                        else None,
                         started_at=run_started_at,
                         finished_at=finished_at,
                         duration_ms=int((time.perf_counter() - started_perf) * 1000),
@@ -5199,7 +5987,9 @@ async def agent_chat(req: AgentChatRequest, db: Session = Depends(get_db)):
 
 
 @app.post("/api/ai/reports/thread/{thread_id}")
-async def generate_thread_report(thread_id: str, body: ReportGenerateRequest, db: Session = Depends(get_db)):
+async def generate_thread_report(
+    thread_id: str, body: ReportGenerateRequest, db: Session = Depends(get_db)
+):
     thread = db.get(AIThread, thread_id)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
@@ -5207,13 +5997,21 @@ async def generate_thread_report(thread_id: str, body: ReportGenerateRequest, db
     if not agent:
         raise HTTPException(status_code=500, detail="Thread agent missing")
 
-    provider: Provider = (body.provider or _pick_default_provider(db))  # type: ignore[assignment]
+    provider: Provider = body.provider or _pick_default_provider(db)  # type: ignore[assignment]
     model = (body.model or "").strip() or await _pick_default_model(db, provider)
     api_key = _resolve_api_key(db, provider, None)
     if provider in ("openai", "anthropic", "gemini") and not api_key:
-        raise HTTPException(status_code=400, detail=f"{provider} is not configured. Set API key in AI Settings.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"{provider} is not configured. Set API key in AI Settings.",
+        )
 
-    msgs = db.query(AIMessage).filter(AIMessage.thread_id == thread.id).order_by(AIMessage.created_at.asc()).all()
+    msgs = (
+        db.query(AIMessage)
+        .filter(AIMessage.thread_id == thread.id)
+        .order_by(AIMessage.created_at.asc())
+        .all()
+    )
     msg_ids = [m.id for m in msgs]
     tool_calls = (
         db.query(AIToolCall)
@@ -5228,7 +6026,13 @@ async def generate_thread_report(thread_id: str, body: ReportGenerateRequest, db
     for m in msgs:
         if m.role == "system":
             continue
-        timeline.append({"role": m.role, "content": m.content_md, "created_at": m.created_at.isoformat()})
+        timeline.append(
+            {
+                "role": m.role,
+                "content": m.content_md,
+                "created_at": m.created_at.isoformat(),
+            }
+        )
     tools = []
     for tc in tool_calls:
         tools.append(
@@ -5241,7 +6045,11 @@ async def generate_thread_report(thread_id: str, body: ReportGenerateRequest, db
             }
         )
 
-    report_title = (body.title or "").strip() or (thread.title or "").strip() or f"{agent.name} Report"
+    report_title = (
+        (body.title or "").strip()
+        or (thread.title or "").strip()
+        or f"{agent.name} Report"
+    )
 
     baseline_lines: List[str] = [
         f"# {report_title}",
@@ -5271,7 +6079,26 @@ async def generate_thread_report(thread_id: str, body: ReportGenerateRequest, db
             baseline_lines.append(f"- `{status}` {toon} ({duration_ms}ms)")
     else:
         baseline_lines.append("- (none)")
-    baseline_lines.extend(["", "## Findings", "", "- (fill in)", "", "## Risks", "", "- (fill in)", "", "## Recommendations", "", "- (fill in)", "", "## Next Steps", "", "- (fill in)"])
+    baseline_lines.extend(
+        [
+            "",
+            "## Findings",
+            "",
+            "- (fill in)",
+            "",
+            "## Risks",
+            "",
+            "- (fill in)",
+            "",
+            "## Recommendations",
+            "",
+            "- (fill in)",
+            "",
+            "## Next Steps",
+            "",
+            "- (fill in)",
+        ]
+    )
     baseline_md = "\n".join(baseline_lines).strip() + "\n"
 
     system = (
@@ -5285,7 +6112,12 @@ async def generate_thread_report(thread_id: str, body: ReportGenerateRequest, db
     )
     user = json.dumps(
         {
-            "thread": {"id": thread.id, "agent_id": thread.agent_id, "topology_id": thread.topology_id, "title": thread.title},
+            "thread": {
+                "id": thread.id,
+                "agent_id": thread.agent_id,
+                "topology_id": thread.topology_id,
+                "title": thread.title,
+            },
             "draft_report_md": baseline_md,
             "tool_calls": tools,
         },
@@ -5299,7 +6131,10 @@ async def generate_thread_report(thread_id: str, body: ReportGenerateRequest, db
                 provider=provider,
                 model=model,
                 api_key=api_key,
-                messages=[ChatMessage(role="system", content=system), ChatMessage(role="user", content=user)],
+                messages=[
+                    ChatMessage(role="system", content=system),
+                    ChatMessage(role="user", content=user),
+                ],
                 temperature=0.1,
                 max_tokens=1200,
             )
@@ -5318,7 +6153,9 @@ async def generate_thread_report(thread_id: str, body: ReportGenerateRequest, db
             type="report",
             title=report_title,
             content_md=md,
-            content_json=json.dumps({"embedding": art_embedding}, ensure_ascii=False) if art_embedding else None,
+            content_json=json.dumps({"embedding": art_embedding}, ensure_ascii=False)
+            if art_embedding
+            else None,
             embedding_vec=art_embedding,
             created_at=datetime.utcnow(),
         )

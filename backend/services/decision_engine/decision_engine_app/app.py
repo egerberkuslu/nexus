@@ -52,6 +52,10 @@ ANOMALY_EWMA_ALPHA = float(os.getenv("ANOMALY_EWMA_ALPHA", "0.2"))
 ANOMALY_CUSUM_K = float(os.getenv("ANOMALY_CUSUM_K", "0.5"))
 ANOMALY_CUSUM_H = float(os.getenv("ANOMALY_CUSUM_H", "6.0"))
 
+# SkyFabric cyber-physical MANO policy: reposition a relay/VNF host when its
+# measured wireless link (RSSI, dBm) degrades below this threshold.
+MANO_RSSI_THRESHOLD_DBM = float(os.getenv("MANO_RSSI_THRESHOLD_DBM", "-78"))
+
 EMIT_NOOP_DECISIONS = os.getenv("EMIT_NOOP_DECISIONS", "false").lower() == "true"
 
 
@@ -509,12 +513,57 @@ class DecisionEngine:
                 continue
             self._bump("processed", "mano_policy")
             model = self.assignments.get("mano_policy")
-            algorithm = (model.algorithm if model else "noop").strip().lower()
+            # SkyFabric: default to the built-in cyber-physical reposition policy so
+            # the closed loop works without an explicit AI-Gateway assignment
+            # (mirrors anomaly_detection defaulting to robust_zscore).
+            algorithm = (model.algorithm if model else "rssi_reposition").strip().lower()
             if algorithm in {"noop", ""}:
                 if EMIT_NOOP_DECISIONS:
                     self._emit_noop("mano_policy", msg)
                 continue
-            self._bump("errors", "mano_policy.unsupported_algorithm")
+            if algorithm != "rssi_reposition":
+                self._bump("errors", "mano_policy.unsupported_algorithm")
+                continue
+            try:
+                topology_id, emulation_id, device, metrics, features = self._extract_ctx(msg)
+                if not topology_id or not device:
+                    continue
+                rssi = _safe_float(features.get("rssi_dbm"))
+                if rssi is None:
+                    continue
+                if rssi >= MANO_RSSI_THRESHOLD_DBM:
+                    # link healthy -> no action (this is what stops the loop once the
+                    # commanded reposition restores the link).
+                    continue
+                ax = _safe_float(features.get("anchor_x"))
+                ay = _safe_float(features.get("anchor_y"))
+                az = _safe_float(features.get("anchor_z"))
+                if ax is None or ay is None or az is None:
+                    self._bump("errors", "mano_policy.no_anchor")
+                    continue
+                payload = {
+                    "timestamp": _now_iso(),
+                    "topology_id": topology_id,
+                    "emulation_id": emulation_id or None,
+                    "device": device,
+                    "kind": "reposition",
+                    "reason": "rssi_below_threshold",
+                    "current_rssi_dbm": float(rssi),
+                    "threshold_dbm": float(MANO_RSSI_THRESHOLD_DBM),
+                    "target": {"x": float(ax), "y": float(ay), "z": float(az)},
+                    "model": {
+                        "task": "mano_policy",
+                        "model_id": (model.model_id if model else "builtin"),
+                        "name": (model.name if model else algorithm),
+                    },
+                }
+                ok = self.producer.send_message(
+                    KAFKA_ACTIONS_MANO_TOPIC, payload, key=f"{topology_id}|{device}"
+                )
+                if ok:
+                    self._bump("emitted", "actions.mano")
+            except Exception:
+                self._bump("errors", "mano_policy.exception")
 
 
 engine = DecisionEngine()

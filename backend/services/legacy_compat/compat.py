@@ -160,7 +160,11 @@ class H(BaseHTTPRequestHandler):
                 st, d = _req("POST", f"{SNAPSHOT}/api/snapshots", payload)
                 return self._send(200, {"success": st in (200, 201), "snapshot": d})
 
-        # ---- network status (derive from orchestrator emulation state) ----
+        # ---- network status ----
+        # NOTE: components read nested fields (topology_summary.hosts, .stats.hosts,
+        # .hosts.map, .links) WITHOUT null-guards, so every such field MUST be
+        # present and well-typed or the whole React tree throws and unmounts
+        # (white screen). Ship a complete, safe, empty shape.
         if path == "/api/network/status":
             st, d = _req("GET", f"{ORCH}/api/emulation/active")
             active = bool(d) if d else False
@@ -170,19 +174,35 @@ class H(BaseHTTPRequestHandler):
                     "success": True,
                     "running": active,
                     "status": "running" if active else "stopped",
-                    "nodes": 0,
-                    "links": 0,
+                    "hosts": [],
+                    "switches": [],
+                    "links": [],
+                    "nodes": [],
+                    "stats": {"hosts": 0, "switches": 0, "links": 0, "nodes": 0},
+                    "topology_summary": {"hosts": 0, "switches": 0, "links": 0},
                 },
             )
 
-        # ---- full topology (active topology from topology-service) ----
+        # ---- full topology ----
         if path == "/api/topology/full":
-            tops = upstream_topologies()
-            active = next(
-                (t for t in tops if t.get("is_active")), (tops[0] if tops else None)
-            )
             return self._send(
-                200, {"success": True, "topology": active, "nodes": [], "links": []}
+                200,
+                {
+                    "success": True,
+                    "hosts": [],
+                    "switches": [],
+                    "links": [],
+                    "nodes": [],
+                    "controllers": [],
+                    "stats": {
+                        "hosts": 0,
+                        "switches": 0,
+                        "links": 0,
+                        "nodes": 0,
+                        "controllers": 0,
+                    },
+                    "topology_summary": {"hosts": 0, "switches": 0, "links": 0},
+                },
             )
 
         # ---- controller endpoints ----

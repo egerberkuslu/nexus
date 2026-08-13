@@ -38,11 +38,17 @@ SERVICE_PORT = int(os.getenv("SERVICE_PORT", "8017"))
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 KAFKA_INPUT_TOPIC = os.getenv("KAFKA_METRICS_PROCESSED_TOPIC", "metrics.processed")
 KAFKA_ALERTS_ANOMALY_TOPIC = os.getenv("KAFKA_ALERTS_ANOMALY_TOPIC", "alerts.anomaly")
-KAFKA_ALERTS_SECURITY_TOPIC = os.getenv("KAFKA_ALERTS_SECURITY_TOPIC", "alerts.security")
-KAFKA_ACTIONS_ROUTING_TOPIC = os.getenv("KAFKA_ACTIONS_ROUTING_TOPIC", "actions.routing")
+KAFKA_ALERTS_SECURITY_TOPIC = os.getenv(
+    "KAFKA_ALERTS_SECURITY_TOPIC", "alerts.security"
+)
+KAFKA_ACTIONS_ROUTING_TOPIC = os.getenv(
+    "KAFKA_ACTIONS_ROUTING_TOPIC", "actions.routing"
+)
 KAFKA_ACTIONS_MANO_TOPIC = os.getenv("KAFKA_ACTIONS_MANO_TOPIC", "actions.mano")
 
-AI_GATEWAY_URL = (os.getenv("AI_GATEWAY_URL") or "http://ai-gateway-service:8014").rstrip("/")
+AI_GATEWAY_URL = (
+    os.getenv("AI_GATEWAY_URL") or "http://ai-gateway-service:8014"
+).rstrip("/")
 MODEL_REFRESH_SECONDS = int(os.getenv("MODEL_REFRESH_SECONDS", "20"))
 
 ANOMALY_WINDOW_SIZE = int(os.getenv("ANOMALY_WINDOW_SIZE", "30"))
@@ -72,6 +78,33 @@ def _safe_float(value: Any) -> Optional[float]:
         return float(value)
     except Exception:
         return None
+
+
+def _rssi_link_cost(rssi_dbm: float) -> float:
+    """RSSI -> relative link cost for FD-DSP placement (lower is better).
+
+    Inlined piecewise envelope matching Paper C's wifi_model.rssi_to_phy_mbps:
+    strong link ~ high PHY rate ~ low cost; near the noise floor the cost blows
+    up. cost = 1 / phy_mbps(rssi). Kept dependency-free so it runs in the DE
+    container (the paper module is not on its path)."""
+    r = float(rssi_dbm)
+    if r >= -50:
+        phy = 72.0
+    elif r >= -60:
+        phy = 65.0
+    elif r >= -67:
+        phy = 52.0
+    elif r >= -74:
+        phy = 39.0
+    elif r >= -80:
+        phy = 26.0
+    elif r >= -86:
+        phy = 13.0
+    elif r >= -90:
+        phy = 6.5
+    else:
+        phy = 1.0  # near/below noise floor -> very costly
+    return 1.0 / phy
 
 
 def _robust_zscore(values: list[float], x: float) -> float:
@@ -166,7 +199,9 @@ class ModelAssignments:
 class DecisionEngine:
     def __init__(self) -> None:
         self.assignments = ModelAssignments()
-        self.producer = CaduceusKafkaProducer(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS, client_id="decision-engine")
+        self.producer = CaduceusKafkaProducer(
+            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS, client_id="decision-engine"
+        )
 
         self._running = False
         self._consumer: Optional[CaduceusKafkaConsumer] = None
@@ -189,9 +224,13 @@ class DecisionEngine:
             "errors": defaultdict(int),
         }
 
-        self._history: Dict[Tuple[str, str, str], Deque[float]] = defaultdict(lambda: deque(maxlen=ANOMALY_WINDOW_SIZE))
+        self._history: Dict[Tuple[str, str, str], Deque[float]] = defaultdict(
+            lambda: deque(maxlen=ANOMALY_WINDOW_SIZE)
+        )
         self._ewma_state: Dict[Tuple[str, str, str], Dict[str, Any]] = defaultdict(dict)
-        self._cusum_state: Dict[Tuple[str, str, str], Dict[str, Any]] = defaultdict(dict)
+        self._cusum_state: Dict[Tuple[str, str, str], Dict[str, Any]] = defaultdict(
+            dict
+        )
 
     def _ewma_zscore(self, key: Tuple[str, str, str], x: float) -> Tuple[float, float]:
         st = self._ewma_state[key]
@@ -204,7 +243,7 @@ class DecisionEngine:
             if var <= 1e-9:
                 score = 0.0 if abs(x - mean) <= 1e-9 else 999.0
             else:
-                score = abs(x - mean) / (var ** 0.5)
+                score = abs(x - mean) / (var**0.5)
 
         alpha = ANOMALY_EWMA_ALPHA
         next_mean = alpha * x + (1 - alpha) * mean
@@ -239,16 +278,34 @@ class DecisionEngine:
         self._consumer.register_callback(KAFKA_INPUT_TOPIC, self._on_metrics)
         self._consumer.start_consuming(blocking=False)
 
-        self._threads.append(threading.Thread(target=self._fanout_loop, name="fanout", daemon=True))
-        self._threads.append(threading.Thread(target=self._refresh_models_loop, name="model-refresh", daemon=True))
-        self._threads.append(threading.Thread(target=self._anomaly_loop, name="anomaly", daemon=True))
-        self._threads.append(threading.Thread(target=self._attack_loop, name="attack", daemon=True))
-        self._threads.append(threading.Thread(target=self._routing_loop, name="routing", daemon=True))
-        self._threads.append(threading.Thread(target=self._mano_loop, name="mano", daemon=True))
+        self._threads.append(
+            threading.Thread(target=self._fanout_loop, name="fanout", daemon=True)
+        )
+        self._threads.append(
+            threading.Thread(
+                target=self._refresh_models_loop, name="model-refresh", daemon=True
+            )
+        )
+        self._threads.append(
+            threading.Thread(target=self._anomaly_loop, name="anomaly", daemon=True)
+        )
+        self._threads.append(
+            threading.Thread(target=self._attack_loop, name="attack", daemon=True)
+        )
+        self._threads.append(
+            threading.Thread(target=self._routing_loop, name="routing", daemon=True)
+        )
+        self._threads.append(
+            threading.Thread(target=self._mano_loop, name="mano", daemon=True)
+        )
         for t in self._threads:
             t.start()
 
-        logger.info("Decision engine started (topic=%s, bootstrap=%s)", KAFKA_INPUT_TOPIC, KAFKA_BOOTSTRAP_SERVERS)
+        logger.info(
+            "Decision engine started (topic=%s, bootstrap=%s)",
+            KAFKA_INPUT_TOPIC,
+            KAFKA_BOOTSTRAP_SERVERS,
+        )
 
     def stop(self) -> None:
         self._running = False
@@ -316,12 +373,28 @@ class DecisionEngine:
                 pass
             time.sleep(max(5, MODEL_REFRESH_SECONDS))
 
-    def _extract_ctx(self, message: Dict[str, Any]) -> Tuple[str, str, str, Dict[str, Any], Dict[str, Any]]:
-        topology_id = str(message.get("topology_id") or (message.get("metrics") or {}).get("topology_id") or "")
-        emulation_id = str(message.get("emulation_id") or (message.get("metrics") or {}).get("emulation_id") or "")
-        device = str(message.get("device") or (message.get("metrics") or {}).get("device") or "")
-        metrics = message.get("metrics") if isinstance(message.get("metrics"), dict) else {}
-        features = message.get("features") if isinstance(message.get("features"), dict) else {}
+    def _extract_ctx(
+        self, message: Dict[str, Any]
+    ) -> Tuple[str, str, str, Dict[str, Any], Dict[str, Any]]:
+        topology_id = str(
+            message.get("topology_id")
+            or (message.get("metrics") or {}).get("topology_id")
+            or ""
+        )
+        emulation_id = str(
+            message.get("emulation_id")
+            or (message.get("metrics") or {}).get("emulation_id")
+            or ""
+        )
+        device = str(
+            message.get("device") or (message.get("metrics") or {}).get("device") or ""
+        )
+        metrics = (
+            message.get("metrics") if isinstance(message.get("metrics"), dict) else {}
+        )
+        features = (
+            message.get("features") if isinstance(message.get("features"), dict) else {}
+        )
         return topology_id, emulation_id, device, metrics, features
 
     def _anomaly_loop(self) -> None:
@@ -344,7 +417,13 @@ class DecisionEngine:
                 continue
 
             try:
-                topology_id, emulation_id, device, metrics, features = self._extract_ctx(msg)
+                (
+                    topology_id,
+                    emulation_id,
+                    device,
+                    metrics,
+                    features,
+                ) = self._extract_ctx(msg)
                 if not topology_id or not device:
                     continue
 
@@ -355,7 +434,9 @@ class DecisionEngine:
                     "cpu_percent": _safe_float(metrics.get("cpu_percent")),
                 }
 
-                best: Tuple[str, float, float, float] | None = None  # feature, x, baseline, score
+                best: Tuple[
+                    str, float, float, float
+                ] | None = None  # feature, x, baseline, score
                 for name, x in candidates.items():
                     if x is None:
                         continue
@@ -382,7 +463,11 @@ class DecisionEngine:
                     continue
 
                 feature, x, baseline, score = best
-                threshold = ANOMALY_ZSCORE_THRESHOLD if algorithm != "cusum" else ANOMALY_CUSUM_H
+                threshold = (
+                    ANOMALY_ZSCORE_THRESHOLD
+                    if algorithm != "cusum"
+                    else ANOMALY_CUSUM_H
+                )
                 if score < threshold:
                     continue
 
@@ -405,7 +490,9 @@ class DecisionEngine:
                         "baseline": float(baseline),
                     },
                 }
-                ok = self.producer.send_message(KAFKA_ALERTS_ANOMALY_TOPIC, payload, key=f"{topology_id}|{device}")
+                ok = self.producer.send_message(
+                    KAFKA_ALERTS_ANOMALY_TOPIC, payload, key=f"{topology_id}|{device}"
+                )
                 if ok:
                     self._bump("emitted", "alerts.anomaly")
             except Exception:
@@ -420,7 +507,9 @@ class DecisionEngine:
 
             self._bump("processed", "attack_detection")
             model = self.assignments.get("attack_detection")
-            algorithm = (model.algorithm if model else "correlation_rules").strip().lower()
+            algorithm = (
+                (model.algorithm if model else "correlation_rules").strip().lower()
+            )
             if algorithm in {"noop", ""}:
                 if EMIT_NOOP_DECISIONS:
                     self._emit_noop("attack_detection", msg)
@@ -430,7 +519,13 @@ class DecisionEngine:
                 continue
 
             try:
-                topology_id, emulation_id, device, metrics, features = self._extract_ctx(msg)
+                (
+                    topology_id,
+                    emulation_id,
+                    device,
+                    metrics,
+                    features,
+                ) = self._extract_ctx(msg)
                 if not topology_id or not device:
                     continue
 
@@ -455,9 +550,15 @@ class DecisionEngine:
                         "model_id": (model.model_id if model else "builtin"),
                         "name": (model.name if model else algorithm),
                     },
-                    "evidence": {"drops_rate": drops_rate, "tx_bps": tx_bps, "cpu_percent": cpu},
+                    "evidence": {
+                        "drops_rate": drops_rate,
+                        "tx_bps": tx_bps,
+                        "cpu_percent": cpu,
+                    },
                 }
-                ok = self.producer.send_message(KAFKA_ALERTS_SECURITY_TOPIC, payload, key=f"{topology_id}|{device}")
+                ok = self.producer.send_message(
+                    KAFKA_ALERTS_SECURITY_TOPIC, payload, key=f"{topology_id}|{device}"
+                )
                 if ok:
                     self._bump("emitted", "alerts.security")
             except Exception:
@@ -486,7 +587,9 @@ class DecisionEngine:
             "mano_policy": KAFKA_ACTIONS_MANO_TOPIC,
         }.get(task)
         if topic:
-            ok = self.producer.send_message(topic, payload, key=f"{topology_id}|{device or ''}")
+            ok = self.producer.send_message(
+                topic, payload, key=f"{topology_id}|{device or ''}"
+            )
             if ok:
                 self._bump("emitted", f"{task}.noop")
 
@@ -503,7 +606,66 @@ class DecisionEngine:
                 if EMIT_NOOP_DECISIONS:
                     self._emit_noop("routing_policy", msg)
                 continue
-            self._bump("errors", "routing_policy.unsupported_algorithm")
+            if algorithm != "fd_dsp":
+                self._bump("errors", "routing_policy.unsupported_algorithm")
+                continue
+            # FD-DSP (Paper C) placement/routing: forecast-driven, link-quality
+            # aware. The link half runs here on the real wmediumd RSSI carried in
+            # metrics.processed -- maintain a per-worker RSSI cache and route the
+            # next shard/request to the lowest-link-cost worker.
+            try:
+                (
+                    topology_id,
+                    emulation_id,
+                    device,
+                    metrics,
+                    features,
+                ) = self._extract_ctx(msg)
+                if not topology_id or not device:
+                    continue
+                rssi = _safe_float(features.get("rssi_dbm"))
+                if not hasattr(self, "_link_rssi"):
+                    self._link_rssi = {}
+                if rssi is not None:
+                    self._link_rssi[device] = rssi
+                if not self._link_rssi:
+                    continue
+                ranked = sorted(
+                    self._link_rssi.items(), key=lambda kv: kv[1], reverse=True
+                )
+                best_dev, best_rssi = ranked[0]
+                payload = {
+                    "timestamp": _now_iso(),
+                    "topology_id": topology_id,
+                    "emulation_id": emulation_id or None,
+                    "kind": "route",
+                    "algorithm": "fd_dsp",
+                    "target": best_dev,
+                    "target_rssi_dbm": float(best_rssi),
+                    "link_cost": round(_rssi_link_cost(best_rssi), 4),
+                    "candidates": [
+                        {
+                            "device": d,
+                            "rssi_dbm": float(r),
+                            "link_cost": round(_rssi_link_cost(r), 4),
+                        }
+                        for d, r in ranked
+                    ],
+                    "model": {
+                        "task": "routing_policy",
+                        "model_id": (model.model_id if model else "builtin"),
+                        "name": (model.name if model else algorithm),
+                    },
+                }
+                ok = self.producer.send_message(
+                    KAFKA_ACTIONS_ROUTING_TOPIC,
+                    payload,
+                    key=f"{topology_id}|route",
+                )
+                if ok:
+                    self._bump("emitted", "actions.routing")
+            except Exception:
+                self._bump("errors", "routing_policy.exception")
 
     def _mano_loop(self) -> None:
         while self._running:
@@ -516,7 +678,9 @@ class DecisionEngine:
             # SkyFabric: default to the built-in cyber-physical reposition policy so
             # the closed loop works without an explicit AI-Gateway assignment
             # (mirrors anomaly_detection defaulting to robust_zscore).
-            algorithm = (model.algorithm if model else "rssi_reposition").strip().lower()
+            algorithm = (
+                (model.algorithm if model else "rssi_reposition").strip().lower()
+            )
             if algorithm in {"noop", ""}:
                 if EMIT_NOOP_DECISIONS:
                     self._emit_noop("mano_policy", msg)
@@ -525,7 +689,13 @@ class DecisionEngine:
                 self._bump("errors", "mano_policy.unsupported_algorithm")
                 continue
             try:
-                topology_id, emulation_id, device, metrics, features = self._extract_ctx(msg)
+                (
+                    topology_id,
+                    emulation_id,
+                    device,
+                    metrics,
+                    features,
+                ) = self._extract_ctx(msg)
                 if not topology_id or not device:
                     continue
                 rssi = _safe_float(features.get("rssi_dbm"))
@@ -595,7 +765,12 @@ async def _shutdown() -> None:
 
 @app.get("/health")
 async def health() -> Dict[str, Any]:
-    return {"status": "ok", "running": True, "kafka_topic": KAFKA_INPUT_TOPIC, "ai_gateway": AI_GATEWAY_URL}
+    return {
+        "status": "ok",
+        "running": True,
+        "kafka_topic": KAFKA_INPUT_TOPIC,
+        "ai_gateway": AI_GATEWAY_URL,
+    }
 
 
 @app.get("/api/stats")

@@ -14,6 +14,7 @@ import AiConsoleAdmin from '@pages/AiConsoleAdmin'
 import MlModels from '@pages/MlModels'
 import DataLab from '@pages/DataLab'
 import ApiDocs from '@pages/ApiDocs'
+import SwarmInfer from '@pages/SwarmInfer'
 import { NotFound } from '@pages/NotFound'
 
 function App() {
@@ -26,6 +27,7 @@ function App() {
         <Route path="topology/:id" element={<TopologyEditor />} />
         <Route path="monitoring/:id" element={<Monitoring />} />
         <Route path="network-manager" element={<NetworkManager />} />
+        <Route path="swarminfer" element={<SwarmInfer />} />
         <Route path="infrastructure" element={<Infrastructure />} />
         <Route path="ai-console" element={<AiConsoleAdmin />} />
         <Route path="ai-settings" element={<AiSettings />} />

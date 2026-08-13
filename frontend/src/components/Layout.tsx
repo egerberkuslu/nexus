@@ -12,6 +12,7 @@ import {
   CommandLineIcon,
   DocumentTextIcon,
   ServerIcon,
+  CpuChipIcon,
 } from '@heroicons/react/24/outline'
 import ThemeSwitcher from './ThemeSwitcher'
 import { LanguageSwitcher } from './LanguageSwitcher'
@@ -25,6 +26,7 @@ export default function Layout() {
 
   const navigation = [
     { name: t('nav.home'), href: '/', icon: HomeIcon },
+    { name: 'SwarmInfer', href: '/swarminfer', icon: CpuChipIcon },
     { name: t('nav.features'), href: '/features', icon: ChartBarIcon },
     { name: t('nav.projects'), href: '/projects', icon: FolderIcon },
     { name: t('nav.apiDocs'), href: '/docs', icon: DocumentTextIcon },

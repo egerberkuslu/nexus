@@ -61,6 +61,14 @@ ANOMALY_CUSUM_H = float(os.getenv("ANOMALY_CUSUM_H", "6.0"))
 # SkyFabric cyber-physical MANO policy: reposition a relay/VNF host when its
 # measured wireless link (RSSI, dBm) degrades below this threshold.
 MANO_RSSI_THRESHOLD_DBM = float(os.getenv("MANO_RSSI_THRESHOLD_DBM", "-78"))
+# The RSSI reposition is a cyber-physical SAFETY behaviour, independent of the
+# mano_policy scaler choice (proact/reactive) which is consumed by the host-side
+# strategic controller. On by default; set 0 to disable link-recovery reposition.
+MANO_REPOSITION_ENABLED = os.getenv("MANO_REPOSITION_ENABLED", "1").lower() not in (
+    "0",
+    "false",
+    "no",
+)
 
 EMIT_NOOP_DECISIONS = os.getenv("EMIT_NOOP_DECISIONS", "false").lower() == "true"
 
@@ -675,20 +683,17 @@ class DecisionEngine:
             except queue.Empty:
                 continue
             self._bump("processed", "mano_policy")
-            model = self.assignments.get("mano_policy")
-            # SkyFabric: default to the built-in cyber-physical reposition policy so
-            # the closed loop works without an explicit AI-Gateway assignment
-            # (mirrors anomaly_detection defaulting to robust_zscore).
-            algorithm = (
-                (model.algorithm if model else "rssi_reposition").strip().lower()
-            )
-            if algorithm in {"noop", ""}:
+            # mano_policy names the SCALING strategy (proact/reactive/noop),
+            # consumed by the host-side strategic controller. The cyber-physical
+            # RSSI reposition below is a separate SAFETY behaviour that runs
+            # independent of that choice (gated by MANO_REPOSITION_ENABLED), so
+            # selecting proact for scaling never disables link recovery and never
+            # produces unsupported_algorithm noise.
+            if not MANO_REPOSITION_ENABLED:
                 if EMIT_NOOP_DECISIONS:
                     self._emit_noop("mano_policy", msg)
                 continue
-            if algorithm != "rssi_reposition":
-                self._bump("errors", "mano_policy.unsupported_algorithm")
-                continue
+            model = self.assignments.get("mano_policy")
             try:
                 (
                     topology_id,
@@ -725,7 +730,7 @@ class DecisionEngine:
                     "model": {
                         "task": "mano_policy",
                         "model_id": (model.model_id if model else "builtin"),
-                        "name": (model.name if model else algorithm),
+                        "name": "rssi_reposition",
                     },
                 }
                 ok = self.producer.send_message(

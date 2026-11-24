@@ -1,0 +1,115 @@
+{
+  "name": "demo-roaming-2ap",
+  "description": "Demonstration topology: two access points 40 m apart sharing one SSID, two fixed stations and one station placed between the cells (no measurements)",
+  "version": "1.0",
+  "metadata": {
+    "author": "NEXUS demo",
+    "created": "2026-11-24",
+    "tags": [
+      "demo",
+      "wireless"
+    ]
+  },
+  "nodes": [
+    {
+      "name": "ap1",
+      "device_type": "ap",
+      "x": 150,
+      "y": 100,
+      "properties": {
+        "ssid": "nexus-roam",
+        "mode": "g",
+        "channel": "1",
+        "security": "open",
+        "position": "0,0,0",
+        "range": 60,
+        "txpower": 20
+      }
+    },
+    {
+      "name": "ap2",
+      "device_type": "ap",
+      "x": 650,
+      "y": 100,
+      "properties": {
+        "ssid": "nexus-roam",
+        "mode": "g",
+        "channel": "6",
+        "security": "open",
+        "position": "40,0,0",
+        "range": 60,
+        "txpower": 20
+      }
+    },
+    {
+      "name": "sta1",
+      "device_type": "station",
+      "x": 50,
+      "y": 330,
+      "properties": {
+        "ssid": "nexus-roam",
+        "mode": "g",
+        "security": "open",
+        "ip": "10.0.0.1/8",
+        "position": "-5,6,0"
+      }
+    },
+    {
+      "name": "sta2",
+      "device_type": "station",
+      "x": 400,
+      "y": 330,
+      "properties": {
+        "ssid": "nexus-roam",
+        "mode": "g",
+        "security": "open",
+        "ip": "10.0.0.2/8",
+        "position": "18,6,0"
+      }
+    },
+    {
+      "name": "sta3",
+      "device_type": "station",
+      "x": 750,
+      "y": 330,
+      "properties": {
+        "ssid": "nexus-roam",
+        "mode": "g",
+        "security": "open",
+        "ip": "10.0.0.3/8",
+        "position": "45,6,0"
+      }
+    }
+  ],
+  "links": [
+    {
+      "source_node_id": "ap1",
+      "target_node_id": "sta1",
+      "bandwidth": 54,
+      "delay": 0,
+      "properties": {}
+    },
+    {
+      "source_node_id": "ap1",
+      "target_node_id": "sta2",
+      "bandwidth": 54,
+      "delay": 0,
+      "properties": {}
+    },
+    {
+      "source_node_id": "ap2",
+      "target_node_id": "sta3",
+      "bandwidth": 54,
+      "delay": 0,
+      "properties": {}
+    }
+  ],
+  "controllers": [],
+  "protocols": {
+    "wireless": {
+      "protocol": "802.11g",
+      "frequency": "2.4GHz",
+      "encryption": "none"
+    }
+  }
+}

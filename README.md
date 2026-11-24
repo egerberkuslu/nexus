@@ -70,8 +70,7 @@ measurements. They were captured from a development build whose navigation bar h
 | | |
 | --- | --- |
 | ![Designer](docs/screenshots/01-designer-full-stack.png)<br><sub>Designer with the bundled full-stack example: host, OVS switch, router, access point, stations, P4 switch and ONOS controller.</sub> | ![Home](docs/screenshots/02-home-dark.png)<br><sub>Home page with counters read from the running backend.</sub> |
-| ![Mobility](docs/screenshots/03-designer-mobility.png)<br><sub>Two access points and four stations; the Mobility tab of a station sets speed and movement pattern.</sub> | ![Station properties](docs/screenshots/04-station-properties.png)<br><sub>Station properties: SSID, Wi-Fi mode, password and IP address.</sub> |
-| ![Link properties](docs/screenshots/05-link-properties.png)<br><sub>Link properties: bandwidth, delay, packet loss and jitter.</sub> | ![Routers](docs/screenshots/06-designer-routers-dark.png)<br><sub>The bundled multi-protocol router example (OSPF, BGP, RIP) in the dark theme.</sub> |
+| ![Mobility](docs/screenshots/03-designer-mobility.png)<br><sub>Two access points and four stations; the Mobility tab of a station sets speed and movement pattern.</sub> | ![Link properties](docs/screenshots/05-link-properties.png)<br><sub>Link properties: bandwidth, delay, packet loss and jitter.</sub> |
 
 ### Running emulation
 
@@ -117,11 +116,20 @@ Then open the web interface at `http://localhost:3000` (`FRONTEND_PORT`). Grafan
 
 ## Containers
 
-The Container UI tab of the Network Manager embeds web interfaces without leaving NEXUS. In
-Emulation Node mode it opens a web port of a node inside the running topology. In Infrastructure mode it
-opens the shared services (Grafana, Prometheus, Consul, InfluxDB, pgAdmin, Mongo Express, RabbitMQ,
-Kafka UI, Flink, Spark, HDFS, Hive, Hue), the OSM NG-UI and Light UI, and the UI of a per-topology SDN
-controller. Services that forbid framing are offered in a new tab instead.
+Containers appear in NEXUS in three places. In the designer, the Docker tab of a station or host turns
+the node into a Containernet container: tick Enable Docker Container and give an image, an optional
+command, environment variables and volumes. The Infrastructure page lists the emulation container of
+every topology (`caduceus-emu-<id>`, running or stopped) with links to its Network Manager and canvas,
+and the shared service containers with their port mappings and environment. The Container UI tab of the
+Network Manager embeds web interfaces without leaving NEXUS: in Emulation Node mode a web port of a node
+inside the running topology, in Infrastructure mode the shared services (Grafana, Prometheus, Consul,
+InfluxDB, pgAdmin, Mongo Express, RabbitMQ, Kafka UI, Flink, Spark, HDFS, Hive, Hue), the OSM NG-UI and
+Light UI, and the UI of a per-topology SDN controller. Services that forbid framing open in a new tab.
+
+| | |
+| --- | --- |
+| ![Docker stations](docs/screenshots/14-docker-stations.png)<br><sub>Eight stations backed by Docker containers around one access point; the Docker tab sets image, command, environment and volumes.</sub> | ![Infrastructure](docs/screenshots/15-infrastructure-containers-dark.png)<br><sub>Infrastructure page: one emulation container per topology, here all stopped.</sub> |
+| ![Container UI](docs/screenshots/16-container-ui-consul.png)<br><sub>Container UI, Infrastructure mode: the embedded Consul UI with the registered NEXUS services and their health (stopped services show red).</sub> | |
 
 ## Example topologies
 
@@ -195,8 +203,11 @@ These were observed while preparing this README and are not fixed yet.
 - **Side containers.** Opening the Network Manager or MANO tab of a topology that has a controller can
   start a per-topology ONOS controller and an isolated OSM stack (`OSM_AUTO_BOOTSTRAP_ISOLATED`
   defaults to `true` in the orchestrator). Set it to `false` if you do not want them.
-- **Default credentials.** The compose defaults for Grafana, InfluxDB and the databases are placeholders
-  and the Test Network Topology tab displays them; set your own in `.env` before exposing the stack.
+- **Default credentials are shown in the interface.** The compose files ship placeholder passwords and
+  tokens for Grafana, InfluxDB, RabbitMQ and the databases. The side panel of the Container UI tab and
+  the infrastructure view of the Test Network Topology tab show some of them in plain text, and the
+  Infrastructure page masks environment variables but not all of them. Set your own values in `.env`
+  before the first start and do not expose the web interface beyond a trusted network.
 - **`quick-start.sh`** copies `.env.example`, but the template in the repository is `env.example`.
 - **Old name.** Container names (`caduceus-*`), the emulation image name, the InfluxDB organisation,
   Consul keys, the frontend package name, the logo in the web interface (`frontend/public/logo2.png`)

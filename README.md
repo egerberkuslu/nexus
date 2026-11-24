@@ -15,8 +15,9 @@
 ![MCP](https://img.shields.io/badge/MCP%20capabilities-47-6f42c1)
 ![Frontend](https://img.shields.io/badge/frontend-React%2018%20%C2%B7%20Vite%20%C2%B7%20TypeScript-3d5a99?logo=react&logoColor=white)
 ![SDN](https://img.shields.io/badge/SDN-ONOS%20%C2%B7%20Ryu%20%C2%B7%20OS--Ken%20%C2%B7%20BMv2-2ea44f)
+[![Paper](https://img.shields.io/badge/paper-IEEE%20ICHORA%202026-00629B)](https://doi.org/10.1109/ICHORA69329.2026.11536976)
 
-[Quick start](#quick-start) · [Screenshots](#screenshots) · [Containers](#containers) · [Example topologies](#example-topologies) · [Architecture](#architecture) · [Known limitations](#known-limitations) · [System architecture](docs/paper/SYSTEM_ARCHITECTURE.md) · [Project overview](docs/PROJECT_OVERVIEW.md)
+[Quick start](#quick-start) · [Screenshots](#screenshots) · [Containers](#containers) · [Example topologies](#example-topologies) · [Architecture](#architecture) · [Known limitations](#known-limitations) · [Citation](#citation) · [System architecture](docs/paper/SYSTEM_ARCHITECTURE.md) · [Project overview](docs/PROJECT_OVERVIEW.md)
 
 </div>
 
@@ -28,6 +29,8 @@ Mininet, Mininet-WiFi and Containernet, builds the network inside it and streams
 browser. From the same page you open a Mininet CLI, a shell on any node, live telemetry, a distributed
 algorithm runner, MANO and OSM views, the web UIs of containers and infrastructure services, and an AI
 console whose tools are exposed through the Model Context Protocol (MCP).
+
+> **Using NEXUS in your research?** Please cite the paper: E. E. Uslu and O. Dağdeviren, "NEXUS: A Microservice-Based Network Emulation Platform with Topology Isolation, Flow-Based Analytics, and AI-Driven Control," ICHORA 2026, [doi:10.1109/ICHORA69329.2026.11536976](https://doi.org/10.1109/ICHORA69329.2026.11536976). BibTeX is under [Citation](#citation).
 
 The project was formerly called Caduceus-Flux. Some container names and identifiers still carry that
 name (see [Known limitations](#known-limitations)).
@@ -213,3 +216,24 @@ These were observed while preparing this README and are not fixed yet.
   Consul keys, the frontend package name, the logo in the web interface (`frontend/public/logo2.png`)
   and several files in `docs/` still use the old name.
 - **No license file** is in the repository yet.
+
+## Citation
+
+NEXUS is described in the paper below. If you use NEXUS, its code or its figures in your work, please cite it.
+
+E. E. Uslu and O. Dağdeviren, "NEXUS: A Microservice-Based Network Emulation Platform with Topology Isolation, Flow-Based Analytics, and AI-Driven Control," in *2026 8th International Congress on Human-Computer Interaction, Optimization and Robotic Applications (ICHORA)*, IEEE, May 2026, pp. 1–10, doi: [10.1109/ICHORA69329.2026.11536976](https://doi.org/10.1109/ICHORA69329.2026.11536976).
+
+```bibtex
+@inproceedings{uslu2026nexus,
+  author    = {Uslu, Ege Erberk and Da{\u{g}}deviren, Orhan},
+  title     = {{NEXUS}: A Microservice-Based Network Emulation Platform with Topology Isolation, Flow-Based Analytics, and {AI}-Driven Control},
+  booktitle = {2026 8th International Congress on Human-Computer Interaction, Optimization and Robotic Applications (ICHORA)},
+  publisher = {IEEE},
+  year      = {2026},
+  month     = may,
+  pages     = {1--10},
+  doi       = {10.1109/ICHORA69329.2026.11536976}
+}
+```
+
+The paper is on IEEE Xplore: <https://ieeexplore.ieee.org/document/11536976>.

@@ -1,294 +1,204 @@
-# Caduceus-Flux: Advanced Microservices Network Emulation Platform
+<div align="center">
 
-## Overview
+<img src="docs/brand/logo-512.png" alt="NEXUS logo" width="240" />
 
-Caduceus-Flux is a comprehensive, microservices-based network emulation platform that provides:
+# NEXUS
 
-- **Unified Emulation Engine**: Per-topology privileged container running Mininet + Mininet-WiFi + Containernet
-- **Microservices Control Plane**: Separation of concerns across topology/orchestration/monitoring/AI/MANO services
-- **Protocol Agnostic**: Runtime protocol switching without restart
-- **Plugin Architecture**: Extensible device, protocol, and controller plugins
-- **Real-time Operations**: Add/remove devices and links without emulation restart
-- **Multi-Protocol Support**: OSPF, BGP, RIP, IS-IS, EIGRP, OpenFlow 1.0-1.5
-- **Wireless Standards**: 802.11 a/b/g/n/ac/ax with runtime transitions
-- **SDN Controllers**: OS-Ken, Ryu, OpenDaylight, ONOS support
-- **P4 Programmable Switches**: BMv2 integration with P4Runtime
-- **Web Interface**: React-based topology designer with WebShell
-- **Snapshot System**: Complete state capture and restoration
-- **MCP Server**: Unified control interface
-- **Full Observability**: Prometheus/Grafana monitoring
+**Network EXperimentation Unified System: draw a wired, wireless or SDN topology in the browser, start it as a real Mininet, Mininet-WiFi or Containernet emulation, and operate it from one web console.**
+
+*One canvas, one Start button, one console: design, emulate, run commands, watch traffic, run distributed algorithms and talk to the network through an MCP-backed AI console.*
+
+![Docker Compose](https://img.shields.io/badge/docker%20compose-76%20services-2496ED?logo=docker&logoColor=white)
+![Backend](https://img.shields.io/badge/backend-21%20FastAPI%20services-009688?logo=fastapi&logoColor=white)
+![Emulation](https://img.shields.io/badge/emulation-Mininet%20%C2%B7%20Mininet--WiFi%20%C2%B7%20Containernet-e8590c)
+![Node types](https://img.shields.io/badge/node%20types-7-6f42c1)
+![MCP](https://img.shields.io/badge/MCP%20capabilities-47-6f42c1)
+![Frontend](https://img.shields.io/badge/frontend-React%2018%20%C2%B7%20Vite%20%C2%B7%20TypeScript-3d5a99?logo=react&logoColor=white)
+![SDN](https://img.shields.io/badge/SDN-ONOS%20%C2%B7%20Ryu%20%C2%B7%20OS--Ken%20%C2%B7%20BMv2-2ea44f)
+
+[Quick start](#quick-start) · [Screenshots](#screenshots) · [Containers](#containers) · [Example topologies](#example-topologies) · [Architecture](#architecture) · [Known limitations](#known-limitations) · [System architecture](docs/paper/SYSTEM_ARCHITECTURE.md) · [Project overview](docs/PROJECT_OVERVIEW.md)
+
+</div>
+
+NEXUS is a network emulation platform built as a set of microservices around a per-topology emulation
+container. You place hosts, switches, routers, access points, stations, P4 switches and SDN controllers
+on a canvas, set their properties (IP, SSID, Wi-Fi mode, mobility, link bandwidth, delay, loss, jitter)
+and press Start. The orchestrator then starts a privileged container for that topology that runs
+Mininet, Mininet-WiFi and Containernet, builds the network inside it and streams its state back to the
+browser. From the same page you open a Mininet CLI, a shell on any node, live telemetry, a distributed
+algorithm runner, MANO and OSM views, the web UIs of containers and infrastructure services, and an AI
+console whose tools are exposed through the Model Context Protocol (MCP).
+
+The project was formerly called Caduceus-Flux. Some container names and identifiers still carry that
+name (see [Known limitations](#known-limitations)).
+
+<div align="center">
+<img src="docs/gif/nexus_topoloji_kurulumu.gif" alt="Building a Wi-Fi topology in the NEXUS designer" width="880" />
+<br><sub>Building a Wi-Fi topology: add an access point and four stations, link them, set SSID, channel and IPs, save.</sub>
+</div>
+
+## What it does
+
+| | |
+| --- | --- |
+| **Topology designer** | React Flow canvas with seven node types in three groups: Host, Switch, Router (network), Access Point, Station (wireless), P4 Switch, Controller (SDN). Per-node property tabs (General, Wireless, Mobility, Docker) and per-link bandwidth, delay, packet loss and jitter. Projects hold several topologies, with JSON import and export. |
+| **One container per topology** | Start asks the orchestrator to create a privileged emulation container for that topology from the image built in `emulation-container/` (Mininet-WiFi, Containernet and Open vSwitch; the full `Dockerfile` also adds hostapd and BMv2). The container exposes a gRPC agent; Stop removes it again. |
+| **Network Manager** | One page per running topology with 18 tabs: Overview, Network Monitoring, MANO, Hosts, Switches, Routers, Controllers, Mininet CLI, Test Network Topology, Configuration, Algorithms, Export Script, Web Shell, Diagnostics, Container UI, AI Console, ML Models and Data Lab. |
+| **Mininet CLI and Web Shell** | A browser terminal attached to the Mininet CLI of the running network, and a WebSocket shell into any single node (`webshell-service`). |
+| **Telemetry** | Device telemetry (CPU, memory, RX/TX) and live traffic charts from `monitoring-service`; metrics flow through `metrics-collector-service` into Kafka and InfluxDB, with Prometheus and Grafana alongside. Diagnostics queries InfluxDB with filters and shows charts and a summary table. |
+| **Distributed algorithms** | The Algorithms tab runs message-passing algorithm templates (for example a distributed maximal independent set with HELLO/ACK neighbour discovery) on the emulated nodes over UDP, with live counters, a message trace, run history and validation checks. |
+| **SDN and P4** | Controller nodes for ONOS, Ryu, OS-Ken and OpenDaylight through `controller-manager-service`; P4 programs are uploaded and compiled by `p4-manager-service` and assigned to BMv2 `p4switch` nodes. |
+| **MANO and OSM** | `mano-service` (local MANO core, gRPC on 50052), `osm-connector-service` (ETSI SOL005/NBI adapter) and an optional OSM stack in the compose file. |
+| **AI console over MCP** | `ai-gateway-service` routes chat to Ollama, OpenAI, Anthropic or Gemini (keys are entered in AI Settings) and to specialised agents (admin, diagnostics, emulation_ops, infra_ops, mcp_ops, network_config, snapshots). It exposes 47 MCP capabilities over the platform; `mcp-tool-hub-service` and the `mcp` compose profile add MCP servers for Grafana, InfluxDB, Kafka, Prometheus, RabbitMQ, Flink, Spark, HDFS, Hive and ONOS. |
+| **Snapshots, schedules, data** | Snapshot and schedule pages per topology, an API docs page, ML model and Data Lab pages, and a JupyterLab, Spark, Flink, HDFS and Hive data stack in the compose file. |
+
+## Screenshots
+
+The screenshots were taken from the real interface (English UI, light and dark theme) with Playwright.
+The live screenshots come from the `demo-wifi-4sta` example below while its emulation was running on
+a single host; the values in them (signal, ping, counters) are a demonstration of the interface, not
+measurements. They were captured from a development build whose navigation bar has one extra entry
+(SwarmInfer) that is not on `main`, and whose header still shows the old logo.
+
+<div align="center">
+<img src="docs/gif/nexus_start_canli.gif" alt="Starting an emulation and using the Network Manager" width="880" />
+<br><sub>Start a topology, then the Network Manager: overview, signal, pingall, ping, monitoring, diagnostics and the algorithm runner.</sub>
+</div>
+
+### Design
+
+| | |
+| --- | --- |
+| ![Designer](docs/screenshots/01-designer-full-stack.png)<br><sub>Designer with the bundled full-stack example: host, OVS switch, router, access point, stations, P4 switch and ONOS controller.</sub> | ![Home](docs/screenshots/02-home-dark.png)<br><sub>Home page with counters read from the running backend.</sub> |
+| ![Mobility](docs/screenshots/03-designer-mobility.png)<br><sub>Two access points and four stations; the Mobility tab of a station sets speed and movement pattern.</sub> | ![Station properties](docs/screenshots/04-station-properties.png)<br><sub>Station properties: SSID, Wi-Fi mode, password and IP address.</sub> |
+| ![Link properties](docs/screenshots/05-link-properties.png)<br><sub>Link properties: bandwidth, delay, packet loss and jitter.</sub> | ![Routers](docs/screenshots/06-designer-routers-dark.png)<br><sub>The bundled multi-protocol router example (OSPF, BGP, RIP) in the dark theme.</sub> |
+
+### Running emulation
+
+| | |
+| --- | --- |
+| ![Live canvas](docs/screenshots/07-live-wifi-dark.png)<br><sub>A running Wi-Fi topology: "Emulation running" badge and the Stop button.</sub> | ![Network Manager](docs/screenshots/08-network-manager-live.png)<br><sub>Network Manager overview with uptime and active links.</sub> |
+| ![Mininet CLI](docs/screenshots/09-mininet-cli-live.png)<br><sub>Mininet CLI in the browser: <code>nodes</code>, <code>iw dev ... link</code> and <code>pingall</code>.</sub> | ![Web Shell](docs/screenshots/10-webshell-ap-live.png)<br><sub>Web Shell on the access point: <code>iw dev ap1-wlan1 station dump</code> lists the four stations.</sub> |
+| ![Monitoring](docs/screenshots/11-monitoring-live-dark.png)<br><sub>Network Monitoring: device telemetry and live traffic chart while background <code>iperf</code> traffic runs.</sub> | ![Algorithms](docs/screenshots/12-algorithms-mis-live.png)<br><sub>Algorithms: a finished distributed MIS run with its validation checks.</sub> |
+| ![AI Console](docs/screenshots/13-ai-console-dark.png)<br><sub>AI Console: provider, model and agent selection, the 47 MCP capabilities and the auto-routing agents.</sub> | |
+
+## Quick start
+
+NEXUS needs a Linux host with Docker and Docker Compose v2. The emulation container runs privileged
+(Mininet and Mininet-WiFi create network namespaces and virtual radios), and the full compose file
+starts a large stack, so plan for a machine with plenty of memory and disk. These commands are the
+ones the repository uses; they were not re-run for this README.
+
+```bash
+git clone https://github.com/egerberkuslu/nexus.git
+cd nexus
+
+# 1. Settings. Compose reads ports and credentials from .env; change every default password.
+cp env.example .env
+
+# 2. Emulation image that the orchestrator starts for each topology
+(cd emulation-container && docker build -f Dockerfile.simple -t caduceus-flux-emulation-container:latest .)
+
+# 3. Platform
+docker compose up -d --build
+
+# Optional: MCP servers for Grafana, InfluxDB, Kafka, Prometheus, RabbitMQ, Flink, Spark, HDFS, Hive, ONOS
+docker compose --profile mcp up -d
+```
+
+Then open the web interface at `http://localhost:3000` (`FRONTEND_PORT`). Grafana listens on
+`http://localhost:3001` and the Swagger index of all services is served through Nginx at
+`http://localhost/api/docs`. To try the platform, go to Projects, choose Import Topology, load
+`examples/demo-wifi-4sta.json`, open it and press Start.
+
+`docker-manage.sh` and `start-services.sh` wrap the same compose commands. The smoke tests in
+`scripts/` (`sdn_smoke_test.sh`, `mano_smoke_test.sh`, `mcp_tool_hub_smoke_test.sh`,
+`verify_ai_ml_features.sh`) check a running stack.
+
+## Containers
+
+The Container UI tab of the Network Manager embeds web interfaces without leaving NEXUS. In
+Emulation Node mode it opens a web port of a node inside the running topology. In Infrastructure mode it
+opens the shared services (Grafana, Prometheus, Consul, InfluxDB, pgAdmin, Mongo Express, RabbitMQ,
+Kafka UI, Flink, Spark, HDFS, Hive, Hue), the OSM NG-UI and Light UI, and the UI of a per-topology SDN
+controller. Services that forbid framing are offered in a new tab instead.
+
+## Example topologies
+
+All examples live in [`examples/`](examples). Import one from the Projects page with Import Topology,
+pick the JSON file and a target project. When a project is selected the dialog ticks "Overwrite an
+existing topology" by default; untick it if the project already holds a topology you want to keep.
+
+| File | What it is |
+| --- | --- |
+| [`demo-wifi-4sta.json`](examples/demo-wifi-4sta.json) | One 802.11g access point (SSID `nexus-demo`, channel 1, open) and four stations `10.0.0.1-4/8`, all within 12 m. Every node carries an explicit `position`, which the wireless medium needs for the stations to associate. This is the topology behind the live screenshots and the second GIF. |
+| [`demo-roaming-2ap.json`](examples/demo-roaming-2ap.json) | Two access points 40 m apart that share the SSID `nexus-roam` on channels 1 and 6, with one station near each and one between the cells. A starting point for roaming experiments: enable Mobility on a station in its property panel. It was saved as a design and has not been started. |
+| [`full-stack-demo-onos-p4-wifi.json`](examples/full-stack-demo-onos-p4-wifi.json) | SDN example: host, OVS switch, router, access point with two stations, BMv2 P4 switch and an ONOS controller. Its Wi-Fi password is a sample value from the old project name; replace it before use. |
+| [`multi-protocol-router.json`](examples/multi-protocol-router.json) | Three routers (OSPF, BGP, RIP) and three hosts. |
+| [`simple-topology.json`](examples/simple-topology.json), [`wireless-mesh.json`](examples/wireless-mesh.json), [`localai-p2p-cluster-single-switch.json`](examples/localai-p2p-cluster-single-switch.json) | Two hosts and a switch; one access point with three 802.11ac stations; a Containernet cluster of one OVS switch, one LocalAI master and three dockerized LocalAI workers (see [`LOCALAI_CLUSTER_GUIDE.md`](examples/LOCALAI_CLUSTER_GUIDE.md)). |
+
+The two `demo-*` files contain no passwords or keys.
 
 ## Architecture
 
-### Control Plane Services (Ports 8001+)
-
-1. **Topology Service** (8001) - CRUD operations, JSON I/O, versioning
-2. **Emulation Orchestrator** (8002) - Lifecycle management, gRPC client
-3. **Protocol Manager** (8003) - Plugin system, hot-swapping
-4. **Device Manager** (8004) - Runtime device operations
-5. **Controller Manager** (8005) - SDN controller lifecycle
-6. **Snapshot Service** (8006) - State capture/restore
-7. **WebShell Service** (8007) - TTY over WebSocket
-8. **Export/Import Service** (8008) - Python script generation
-9. **Topology Generator** (8009) - Auto-generation algorithms
-10. **P4 Manager** (8010) - P4 compilation, BMv2 management
-11. **Monitoring Service** (8011) - Metrics collection
-12. **MCP Server** (8012) - Unified API orchestration
-13. **Metrics Collector** (8013) - gRPC metrics streaming bridge → Kafka/Influx
-14. **AI Gateway** (8014) - LLM provider gateway + model registry + MCP request generation/execution
-15. **MANO Service** (8015) - Local MANO core + OSM mirroring/sync (gRPC: 50052)
-16. **Config Service** (8016) - Unified JSON “control config” orchestration across subsystems
-17. **Decision Engine** (8017) - Streaming decisions from processed metrics → alerts/actions
-18. **OSM Connector** (8020) - SOL005/NBI adapter + authenticated proxy for ETSI OSM
-
-Notes:
-- The orchestrator can spawn additional **topology-scoped** runtime containers (emulation, VIM emulator, per-topology OSM stack).
-- See `docs/paper/SYSTEM_ARCHITECTURE.md` for diagrams and end-to-end flows.
-
-### Emulation Container(s) (gRPC Port 50051)
-
-Privileged Docker container with gRPC server including:
-- Mininet 2.3+
-- Mininet-WiFi
-- Containernet
-- Open vSwitch (multi-version OpenFlow support)
-- FRRouting (OSPF, BGP, RIP, IS-IS)
-- BIRD routing daemon
-- BMv2 (P4 behavioral model)
-- hostapd/wpa_supplicant
-
-### Further Reading
-
-- Single-file project overview (purpose + progress): `docs/PROJECT_OVERVIEW.md`
-- System architecture (GitHub-ready): `docs/paper/SYSTEM_ARCHITECTURE.md`
-- Academic paper draft (Markdown): `docs/paper/ACADEMIC_PAPER_DRAFT.md`
-- Control Config (unified control plane): `docs/CONTROL_CONFIG.md`
-- MANO + OSM integration: `docs/MANO_FEATURES.md`, `docs/OSM_INTEGRATION.md`
-- Metrics pipeline: `METRICS_PIPELINE.md`, `docs/AI_ML_STREAMING_CONTROL_PLANE.md`
-
-## Quick Start
-
-### Prerequisites
-
-- Docker 24.0+
-- Docker Compose 2.20+
-- 16GB RAM minimum
-- 50GB disk space
-
-### Installation
-
-```bash
-# Clone repository
-git clone https://github.com/your-org/caduceus-flux.git
-cd caduceus-flux
-
-# Start all services
-docker-compose up -d
-
-# Wait for services to be ready
-./scripts/wait-for-services.sh
-
-# Access web interface
-open http://localhost:3000
+```
+Browser (React 18 + Vite, React Flow, xterm.js)
+   │  HTTP / WebSocket via Nginx (:80)
+   ▼
+Control plane: FastAPI microservices (8001-8020)
+   topology · orchestrator · protocol-manager · device-manager · controller-manager
+   snapshot · webshell · export-import · topology-generator · p4-manager · monitoring
+   mcp-server · metrics-collector · ai-gateway · mano · config · decision-engine
+   mcp-tool-hub · osm-connector
+   │  gRPC (:50051)                        │  Kafka · InfluxDB · Prometheus
+   ▼                                        ▼
+Per-topology emulation container       Data and observability stack
+   Mininet · Mininet-WiFi · Containernet   PostgreSQL · MongoDB · Redis · RabbitMQ · Consul
+   Open vSwitch · wmediumd · hostapd       Grafana · Flink · Spark · HDFS · Hive · JupyterLab
+   BMv2
+   │
+SDN controllers (ONOS, Ryu, OS-Ken, OpenDaylight) and the optional OSM stack
 ```
 
-### Basic Usage
+| Path | Contents |
+| --- | --- |
+| `frontend/` | Web interface; pages in `frontend/src/pages`, designer in `frontend/src/components/TopologyDesigner.tsx`. |
+| `backend/services/` | The 21 FastAPI services, one folder each. |
+| `emulation-container/` | Dockerfiles and gRPC agent of the per-topology emulation container. |
+| `controllers/` | Ryu and OS-Ken controller images. |
+| `infrastructure/` | Nginx, Grafana, Kafka Connect, Flink, Hive, Hue, Jupyter, OSM and MCP configuration. |
+| `examples/` | Example topologies, algorithm and network configuration samples. |
+| `docs/` | Architecture, API, MANO, OSM, control configuration and troubleshooting notes. |
 
-```bash
-# Create a topology
-curl -X POST http://localhost:8001/api/topologies \
-  -H "Content-Type: application/json" \
-  -d @examples/simple-topology.json
+Further reading: [system architecture](docs/paper/SYSTEM_ARCHITECTURE.md),
+[project overview](docs/PROJECT_OVERVIEW.md), [API](docs/API.md),
+[control configuration](docs/CONTROL_CONFIG.md), [MANO](docs/MANO_FEATURES.md),
+[OSM integration](docs/OSM_INTEGRATION.md), [AI/ML streaming control plane](docs/AI_ML_STREAMING_CONTROL_PLANE.md),
+[metrics pipeline](METRICS_PIPELINE.md), [troubleshooting](docs/TROUBLESHOOTING.md).
 
-# Start emulation
-curl -X POST http://localhost:8002/api/emulation/start \
-  -d '{"topology_id": "topology-id"}'
+## Known limitations
 
-# Add device at runtime
-curl -X POST http://localhost:8004/api/devices \
-  -d '{"type": "host", "name": "h3", "ip": "10.0.0.3/24"}'
+These were observed while preparing this README and are not fixed yet.
 
-# Take snapshot
-curl -X POST http://localhost:8006/api/snapshots \
-  -d '{"name": "checkpoint-1"}'
-```
-
-## Technology Stack
-
-### Backend
-- Python 3.11+, FastAPI, gRPC
-- SQLAlchemy, Alembic
-- RabbitMQ/Kafka
-- Docker SDK
-
-### Frontend
-- React 18+, TypeScript
-- React Flow (topology visualization)
-- xterm.js (web terminal)
-- Material-UI
-
-### Databases
-- PostgreSQL (metadata)
-- MongoDB (state snapshots)
-- Redis (caching, pub/sub)
-- InfluxDB (time-series metrics)
-
-### Infrastructure
-- Docker, Docker Compose
-- Consul (service discovery)
-- Prometheus, Grafana
-- Nginx (API gateway)
-
-## Features
-
-### Runtime Protocol Switching
-Switch protocols without restarting emulation:
-- OpenFlow versions (1.0 → 1.3 → 1.4 → 1.5)
-- Routing protocols (OSPF ↔ BGP ↔ RIP ↔ IS-IS)
-- Wireless standards (802.11n ↔ 802.11ac ↔ 802.11ax)
-- Security modes (WPA ↔ WPA2 ↔ WPA3)
-
-### Device Types
-- **Hosts**: IPv4/IPv6, custom routes, applications
-- **Switches**: OVS, Linux Bridge, P4
-- **Routers**: Multi-protocol (FRR/BIRD)
-- **Access Points**: Multi-standard 802.11
-- **Stations**: Wireless clients with mobility
-- **Docker Containers**: Full Containernet integration
-- **P4 Switches**: BMv2 with P4Runtime
-
-### Plugin System
-Extensible plugin architecture for:
-- Custom protocols
-- Device types
-- Controllers
-- Monitoring collectors
-- Export formats
-
-### Snapshot System
-Complete state capture including:
-- Device configurations
-- Routing tables
-- Flow tables
-- ARP/neighbor tables
-- Wireless associations
-- Container states
-- Traffic counters
-
-## Project Structure
-
-```
-caduceus-flux/
-├── backend/
-│   ├── services/          # 12 microservices
-│   ├── shared/            # Common code, models, schemas
-│   ├── proto/             # gRPC protocol definitions
-│   └── migrations/        # Database migrations
-├── emulation-container/   # Unified emulation engine
-│   ├── grpc_agent/        # gRPC server implementation
-│   ├── protocols/         # Protocol implementations
-│   └── Dockerfile
-├── controllers/           # SDN controller containers
-│   ├── osken/
-│   ├── ryu/
-│   ├── opendaylight/
-│   └── onos/
-├── frontend/              # React web application
-│   └── src/
-├── infrastructure/        # Supporting services
-│   ├── nginx/
-│   ├── prometheus/
-│   ├── grafana/
-│   └── databases/
-├── examples/              # Example topologies
-├── tests/                 # Test suites
-├── docs/                  # Documentation
-└── docker-compose.yml     # Orchestration
-```
-
-## API Documentation
-
-Once services are running, access API documentation:
-- Unified docs index (recommended): http://localhost/api/docs
-- Per-service Swagger: http://localhost/api/docs/{service}
-- Per-service OpenAPI JSON: http://localhost/api/openapi/{service}
-
-Notes:
-- Swagger/ReDoc are served by the MCP server through the Nginx gateway at `/api/*`.
-- If you run a microservice directly (bypassing Nginx), its built-in docs are still available at `http://localhost:PORT/docs`.
-
-## P4 Programs (BMv2)
-
-- Upload & compile a `.p4` program: `POST /api/p4/programs/upload` (multipart form file).
-- List compiled programs: `GET /api/p4/programs`.
-- Assign a program to a `p4switch` node by setting node properties:
-  - `p4_program_id` (recommended), or `device_config_path`/`p4info_path` to explicit artifact paths.
-
-## Development
-
-### Running Tests
-
-```bash
-# Unit tests
-pytest tests/unit
-
-# Integration tests
-pytest tests/integration
-
-# E2E tests
-pytest tests/e2e
-```
-
-### Adding Plugins
-
-```python
-# Example: Custom routing protocol plugin
-from caduceus_flux.shared.plugins import ProtocolPlugin
-
-class MyProtocol(ProtocolPlugin):
-    name = "my-protocol"
-    version = "1.0"
-
-    def configure(self, device, config):
-        # Implementation
-        pass
-
-    def enable(self, device):
-        # Implementation
-        pass
-```
-
-## Monitoring
-
-Access Grafana dashboards at http://localhost:3001
-
-Default credentials: admin/admin
-
-Pre-configured dashboards:
-- Network Topology Overview
-- Device Metrics
-- Protocol Statistics
-- Flow Table Analytics
-- Wireless Performance
-
-## Contributing
-
-See [CONTRIBUTING.md](docs/CONTRIBUTING.md)
-
-## License
-
-Apache 2.0 - See [LICENSE](LICENSE)
-
-## Support
-
-- Documentation: https://docs.caduceus-flux.io
-- Issues: https://github.com/your-org/caduceus-flux/issues
-- Discussions: https://github.com/your-org/caduceus-flux/discussions
-
-## Acknowledgments
-
-Built on top of:
-- Mininet, Mininet-WiFi, Containernet
-- Open vSwitch, FRRouting, BIRD
-- BMv2, P4Runtime
-- OS-Ken, Ryu, OpenDaylight, ONOS
+- **Export of wireless topologies.** The script produced by the Export Script tab for a topology with
+  access points and stations contained no `addAccessPoint` or `addStation` calls, while its
+  `net.addLink(...)` lines referred to those undefined nodes, so it did not run. Wired topologies are
+  not affected. The script header still reads "Generated by Caduceus-Flux".
+- **Station position.** The property panel has no position field. With the wmediumd interference
+  model, stations without a position did not associate ("Stations still unassociated after 30.0s").
+  Set `position` in the topology JSON, as the `demo-*` examples do.
+- **Import overwrites by default** when a target project is selected (see
+  [Example topologies](#example-topologies)).
+- **The `/monitoring/<id>` page crashed** with `TypeError: n.toFixed is not a function`, also while an
+  emulation was running. Use the Network Monitoring tab of the Network Manager instead.
+- **Diagnostics chart.** The x-axis timestamps of the Diagnostics chart were not in order.
+- **Side containers.** Opening the Network Manager or MANO tab of a topology that has a controller can
+  start a per-topology ONOS controller and an isolated OSM stack (`OSM_AUTO_BOOTSTRAP_ISOLATED`
+  defaults to `true` in the orchestrator). Set it to `false` if you do not want them.
+- **Default credentials.** The compose defaults for Grafana, InfluxDB and the databases are placeholders
+  and the Test Network Topology tab displays them; set your own in `.env` before exposing the stack.
+- **`quick-start.sh`** copies `.env.example`, but the template in the repository is `env.example`.
+- **Old name.** Container names (`caduceus-*`), the emulation image name, the InfluxDB organisation,
+  Consul keys, the frontend package name, the logo in the web interface (`frontend/public/logo2.png`)
+  and several files in `docs/` still use Caduceus-Flux.
+- **No license file** is in the repository yet.
